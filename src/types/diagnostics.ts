@@ -66,3 +66,24 @@ export interface ValidateResponse {
   keyInspection: KeyInspection;
   probes: ProbeResult[];
 }
+
+export interface SupabaseFunctionInventoryItem {
+  id: string;
+  name: string;
+  slug: string;
+  version?: number;
+  status?: string;
+  entrypointPath: string;
+  normalizedInvokeUrl: string;
+  methodHints: string[];
+  probeSummary: Record<string, number | null>;
+  requestExample: string;
+  responseExample: string;
+}
+
+export interface SupabaseFunctionInventoryResponse {
+  projectRef: string;
+  count: number;
+  items: SupabaseFunctionInventoryItem[];
+  warning?: string;
+}

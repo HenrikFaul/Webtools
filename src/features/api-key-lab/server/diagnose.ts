@@ -48,7 +48,8 @@ async function runProbe(url: string, method: string, headers: HeadersInit, body:
       headers,
       body: method === "GET" ? undefined : body,
       signal: controller.signal,
-      redirect: followRedirects ? "follow" : "manual"
+      redirect: followRedirects ? "follow" : "manual",
+      cache: "no-store"
     });
     const text = await response.text();
     return {
@@ -84,20 +85,40 @@ function makeDiagnosis(probes: ProbeResult[], originalMethod: string, inspection
   const steps = probes.map((p) => `${p.label}: ${p.status ?? "ERR"}`);
   const anyNon404 = probes.some((p) => p.status !== null && p.status !== 404);
   const routeReachable = probes.some((p) => p.status !== null && [200, 400, 401, 403, 405, 422].includes(p.status));
-  const authFailure = probes.some((p) => p.status === 401 || p.status === 403);
   const hasBadPayloadSignal = probes.some((p) => p.status === 400 || p.status === 422);
   const original = probes.find((p) => p.label === "initial");
   const alternateMethodBetter = probes.some((p) => p.method !== originalMethod && p.status !== null && p.status !== 404 && p.status !== 405);
 
+  const noAuthProbe = probes.find((p) => p.label === "post-empty-json-no-auth");
+  const withAuthProbe = probes.find((p) => p.label === "post-empty-json");
+  const withAuthStatus = withAuthProbe?.status;
+  const withoutAuthStatus = noAuthProbe?.status;
+
+  let authStatus: DiagnosisBlock["authStatus"] = "unknown";
+  if (inspection.warnings.some((w) => w.includes("role"))) {
+    authStatus = "likely_wrong_token_type";
+  } else if (withAuthStatus === 401 || withAuthStatus === 403) {
+    authStatus = "likely_invalid";
+  } else if (
+    typeof withAuthStatus === "number" &&
+    typeof withoutAuthStatus === "number" &&
+    withAuthStatus !== withoutAuthStatus &&
+    withAuthStatus < 500
+  ) {
+    authStatus = "valid";
+  } else if (
+    typeof withAuthStatus === "number" &&
+    typeof withoutAuthStatus === "number" &&
+    withAuthStatus === withoutAuthStatus
+  ) {
+    authStatus = "unknown";
+  } else if (routeReachable) {
+    authStatus = "valid";
+  }
+
   return {
     endpointExistence: anyNon404 ? "confirmed_exists" : "likely_missing_or_function_returned_404",
-    authStatus: inspection.warnings.some((w) => w.includes("role"))
-      ? "likely_wrong_token_type"
-      : routeReachable && authFailure
-        ? "likely_invalid"
-        : routeReachable
-          ? "valid"
-          : "unknown",
+    authStatus,
     methodStatus: alternateMethodBetter ? "likely_wrong" : original && original.status !== 405 ? "correct_or_accepted" : "unknown",
     payloadStatus: hasBadPayloadSignal ? "likely_invalid_or_missing" : routeReachable ? "accepted_or_not_needed" : "unknown",
     summary: anyNon404
@@ -106,6 +127,8 @@ function makeDiagnosis(probes: ProbeResult[], originalMethod: string, inspection
     steps,
     probeComparison: [
       `Original method: ${originalMethod}`,
+      `Auth probe with key: ${withAuthStatus ?? "n/a"}`,
+      `Auth probe without key: ${withoutAuthStatus ?? "n/a"}`,
       `Best non-404 probe: ${probes.find((p) => p.status && p.status !== 404)?.label ?? "none"}`,
       `Probe count: ${probes.length}`
     ]
@@ -161,10 +184,19 @@ export async function runValidation(request: ValidateRequest): Promise<ValidateR
     probes.push(await runProbe(normalizedTarget, "GET", headers, undefined, "get-no-body", Boolean(request.followRedirects)));
     probes.push(await runProbe(normalizedTarget, "POST", headers, request.requestBody, "post-user-body", Boolean(request.followRedirects)));
     probes.push(await runProbe(normalizedTarget, "POST", headers, "{}", "post-empty-json", Boolean(request.followRedirects)));
+
+    const noAuthHeaders: Record<string, string> = { "content-type": "application/json" };
+    probes.push(await runProbe(normalizedTarget, "POST", noAuthHeaders, "{}", "post-empty-json-no-auth", Boolean(request.followRedirects)));
   }
 
   const diagnosis = makeDiagnosis(probes, request.method, inspection);
-  const verdict: ValidateResponse["verdict"] = probes.some((p) => p.ok) ? "pass" : probes.some((p) => p.status && p.status < 500) ? "warn" : "fail";
+  const verdict: ValidateResponse["verdict"] = probes.some((p) => p.ok)
+    ? "pass"
+    : diagnosis.authStatus === "likely_invalid" || diagnosis.authStatus === "likely_wrong_token_type"
+      ? "fail"
+      : probes.some((p) => p.status && p.status < 500)
+        ? "warn"
+        : "fail";
 
   return {
     normalizedTarget,
