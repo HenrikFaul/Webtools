@@ -25,4 +25,4 @@ index 0000000000000000000000000000000000000000..c1f63d555a3c9415a63066f0d9192423
 +5. Run trace and inspect each hop card for status, location, headers, and body preview.
  
 EOF
-)
+) 
