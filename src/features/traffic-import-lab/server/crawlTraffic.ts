@@ -1,18 +1,15 @@
-import { isBlockedNetworkTarget, redactHeaderValue, safeBodyPreview } from "@/lib/security";
-import type { RequestManifestEntry } from "@/types/trafficImport";
-
-interface CrawlResult {
-  summary: string;
-  entries: RequestManifestEntry[];
-  warnings: string[];
-}
+import { isBlockedNetworkTarget } from "@/lib/security";
+import type { RequestManifestEntry, TrafficImportResponse } from "@/types/trafficImport";
 
 const DEFAULT_WHITELIST = ["vercel.app", "localhost", "127.0.0.1"];
 
 function isWhitelisted(url: string): boolean {
   try {
     const hostname = new URL(url).hostname.toLowerCase();
-    const envWhitelist = (process.env.CRAWL_DOMAIN_WHITELIST ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+    const envWhitelist = (process.env.CRAWL_DOMAIN_WHITELIST ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
     const whitelist = envWhitelist.length ? envWhitelist : DEFAULT_WHITELIST;
     return whitelist.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
   } catch {
@@ -22,7 +19,12 @@ function isWhitelisted(url: string): boolean {
 
 function entryFromUrl(url: string, idx: number, source: string, status?: number): RequestManifestEntry {
   let path = "/";
-  try { path = new URL(url).pathname; } catch {}
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    // keep root fallback
+  }
+
   return {
     id: `crawl-${idx}`,
     label: url,
@@ -39,7 +41,7 @@ function entryFromUrl(url: string, idx: number, source: string, status?: number)
     responseShapeHints: [],
     sourceEvidence: [{ type: "runtime", detail: source }],
     needsReview: false,
-    normalizationWarnings: [],
+    normalizationWarnings: ["Runtime crawl fallback uses document and HTML extraction rather than full browser automation."],
     runtimeObservedStatus: "observed",
     captureConfidence: "medium",
     specCoverageStatus: "unknown",
@@ -50,63 +52,45 @@ function entryFromUrl(url: string, idx: number, source: string, status?: number)
   };
 }
 
-export async function crawlTraffic(url: string): Promise<CrawlResult> {
+export async function crawlTraffic(url: string): Promise<TrafficImportResponse> {
   if (isBlockedNetworkTarget(url)) {
-    return { summary: "Crawl blocked by SSRF guardrails.", entries: [], warnings: ["Target URL is private/localhost or invalid."] };
+    return {
+      summary: "Crawl blocked by SSRF guardrails.",
+      entries: [],
+      warnings: ["Target URL is private, localhost, or invalid."]
+    };
   }
+
   if (!isWhitelisted(url)) {
-    return { summary: "Crawl blocked by domain whitelist policy.", entries: [], warnings: ["Add domain to CRAWL_DOMAIN_WHITELIST to allow crawling."] };
+    return {
+      summary: "Crawl blocked by domain whitelist policy.",
+      entries: [],
+      warnings: ["Add domain to CRAWL_DOMAIN_WHITELIST to allow crawling in this environment."]
+    };
   }
 
   const warnings: string[] = [];
   const entries: RequestManifestEntry[] = [];
 
-  try {
-    const playwright = await import("playwright");
-    const browser = await playwright.chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    const map = new Map<string, RequestManifestEntry>();
-
-    page.on("request", (req: { resourceType: () => string; method: () => string; url: () => string; headers: () => Record<string, string> }) => {
-      if (!["xhr", "fetch", "websocket"].includes(req.resourceType())) return;
-      const key = `${req.method()}-${req.url()}`;
-      map.set(key, {
-        ...entryFromUrl(req.url(), map.size + 1, "Captured by Playwright request event"),
-        method: req.method(),
-        headersTemplate: Object.fromEntries(Object.entries(req.headers()).map(([k, v]) => [k, redactHeaderValue(k, String(v))]))
-      });
-    });
-
-    page.on("response", async (res: { request: () => { method: () => string }; url: () => string; status: () => number; text: () => Promise<string> }) => {
-      const key = `${res.request().method()}-${res.url()}`;
-      const current = map.get(key);
-      if (!current) return;
-      current.observedStatuses = [res.status()];
-      const txt = safeBodyPreview(await res.text().catch(() => ""));
-      if (txt) current.responseShapeHints = [txt.slice(0, 120)];
-    });
-
-    await page.goto(url, { waitUntil: "networkidle", timeout: 15000 });
-    await browser.close();
-    entries.push(...Array.from(map.values()));
-
-    return {
-      summary: `Captured ${entries.length} runtime request(s).`,
-      entries,
-      warnings
-    };
-  } catch {
-    warnings.push("Playwright runtime capture unavailable in this environment; fallback capture used.");
-  }
-
   const response = await fetch(url, { cache: "no-store" });
   const html = await response.text();
-  entries.push(entryFromUrl(url, 1, "Fallback document request", response.status));
 
-  const matches = Array.from(new Set((html.match(/https?:\/\/[^\"'\s)]+/g) ?? []).filter((u) => u.includes("/api") || u.includes("/graphql"))));
+  entries.push(entryFromUrl(url, 1, "Fetched document URL during fallback crawl", response.status));
+
+  const matches = Array.from(
+    new Set((html.match(/https?:\/\/[^"'\s)]+/g) ?? []).filter((candidate) => candidate.includes("/api") || candidate.includes("/graphql")))
+  );
+
   for (const [idx, found] of matches.entries()) {
-    entries.push(entryFromUrl(found, idx + 2, "Fallback HTML URL extraction"));
+    entries.push(entryFromUrl(found, idx + 2, "Extracted candidate API URL from HTML fallback crawl"));
   }
+
+  if (!matches.length) {
+    warnings.push("No explicit API or GraphQL URLs were found in the HTML fallback crawl.");
+  }
+
+  warnings.push("Live URL crawl is running in fallback mode without Playwright, so runtime fetch/XHR visibility is limited in this environment.");
+  warnings.push("Whitelist policy is active for runtime auditing via CRAWL_DOMAIN_WHITELIST.");
 
   return {
     summary: `Fallback crawl found ${entries.length} candidate request(s).`,

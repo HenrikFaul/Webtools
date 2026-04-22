@@ -47,10 +47,12 @@ export async function replayManifest(payload: ManifestReplayRequest): Promise<Ma
       try {
         const parsed = JSON.parse(firstBody) as Record<string, unknown>;
         for (const [k, v] of Object.entries(parsed)) {
-          if (typeof v === "string" || typeof v === "number") context[`prev.${k}`] = String(v);
+          if (typeof v === "string" || typeof v === "number") {
+            context[`prev.${k}`] = String(v);
+          }
         }
       } catch {
-        // non-json preview
+        // non-json preview, ignore
       }
     }
 
