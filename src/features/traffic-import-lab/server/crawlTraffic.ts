@@ -1,6 +1,22 @@
 import { isBlockedNetworkTarget } from "@/lib/security";
 import type { RequestManifestEntry, TrafficImportResponse } from "@/types/trafficImport";
 
+const DEFAULT_WHITELIST = ["vercel.app", "localhost", "127.0.0.1"];
+
+function isWhitelisted(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const envWhitelist = (process.env.CRAWL_DOMAIN_WHITELIST ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const whitelist = envWhitelist.length ? envWhitelist : DEFAULT_WHITELIST;
+    return whitelist.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+  } catch {
+    return false;
+  }
+}
+
 function entryFromUrl(url: string, idx: number, source: string, status?: number): RequestManifestEntry {
   let path = "/";
   try {
@@ -45,6 +61,14 @@ export async function crawlTraffic(url: string): Promise<TrafficImportResponse> 
     };
   }
 
+  if (!isWhitelisted(url)) {
+    return {
+      summary: "Crawl blocked by domain whitelist policy.",
+      entries: [],
+      warnings: ["Add domain to CRAWL_DOMAIN_WHITELIST to allow crawling in this environment."]
+    };
+  }
+
   const warnings: string[] = [];
   const entries: RequestManifestEntry[] = [];
 
@@ -66,6 +90,7 @@ export async function crawlTraffic(url: string): Promise<TrafficImportResponse> 
   }
 
   warnings.push("Live URL crawl is running in fallback mode without Playwright, so runtime fetch/XHR visibility is limited in this environment.");
+  warnings.push("Whitelist policy is active for runtime auditing via CRAWL_DOMAIN_WHITELIST.");
 
   return {
     summary: `Fallback crawl found ${entries.length} candidate request(s).`,

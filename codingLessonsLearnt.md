@@ -34,3 +34,5 @@
 - Regex-only static analysis misses wrapper-driven and env-derived endpoints; keep uncertainty but enrich with multi-pattern heuristics and review flags.
 - Runtime-observed and code-inferred entries should be shown separately in the UI to make review effort explicit.
 - Replay flows that depend on prior responses need lightweight chain support and token injection rather than only flat sequential replay.
+- Empty-state onboarding and concrete demo scenarios materially reduce setup friction compared to bare technical forms in diagnostics tools.
+- Crawl/runtime auditing needs domain-scoping safeguards so live URL analysis cannot drift into uncontrolled cross-domain inspection.

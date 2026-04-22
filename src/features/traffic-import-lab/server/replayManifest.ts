@@ -61,7 +61,9 @@ export async function replayManifest(payload: ManifestReplayRequest): Promise<Ma
       label: entry.label,
       url: renderedUrl ?? entry.pathTemplate,
       verdict: validation.verdict,
-      verdictReason: validation.verdictReason
+      verdictReason: validation.verdictReason,
+      statusCode: validation.probes?.[0]?.status ?? null,
+      responsePreview: validation.probes?.[0]?.responseBodyPreview
     });
   }
 

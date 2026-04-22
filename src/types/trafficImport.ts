@@ -79,6 +79,8 @@ export interface ManifestReplayResult {
   url: string;
   verdict: "pass" | "warn" | "fail";
   verdictReason: string;
+  statusCode?: number | null;
+  responsePreview?: string;
 }
 
 export interface ManifestReplayResponse {

@@ -19,6 +19,8 @@ Vercel-first Next.js workspace for **VibeCoding toolset**.
   - Manifest normalization
   - Chain replay + token injection
   - Sequential replay through diagnostics engine
+  - Audit-workspace style guidance for live/source/import/demo workflows
+  - Project-folder ingestion and onboarding/demo-oriented operator flow
 
 ## Run locally
 ```bash
