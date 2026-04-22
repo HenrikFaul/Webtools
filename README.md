@@ -13,13 +13,13 @@ Vercel-first Next.js workspace for **VibeCoding toolset**.
   - Redirect visibility
   - Redacted request/response evidence
 - Traffic Import & End-to-End Simulation Lab (`/tools/traffic-import-lab`)
+  - Audit Workspace-style UI for live/source/import/demo flows
   - Runtime crawl URL analysis (`/api/crawl-traffic`)
   - Manual / HAR / OpenAPI / repo-static ingestion
   - Runtime-observed vs code-inferred separation
   - Manifest normalization
   - Chain replay + token injection
   - Sequential replay through diagnostics engine
-  - Audit-workspace style guidance for live/source/import/demo workflows
   - Project-folder ingestion and onboarding/demo-oriented operator flow
 
 ## Run locally

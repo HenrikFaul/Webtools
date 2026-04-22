@@ -34,7 +34,9 @@
 - Upgraded replay engine with chain mode + token injection and template substitution from previous results.
 - Added audit verdict surfacing and explicit runtime-observed vs code-inferred panels in Traffic Import UI.
 - Reworked Traffic Import Lab messaging toward an audit-workspace style experience with clearer live/source/import/demo guidance.
-- Added project folder ingestion UX (webkitdirectory), chunked client-side file reading, and source file preview list as branch-side experiments to preserve for future refinement.
-- Added built-in one-click demo scenarios (OpenWeatherMap, JSONPlaceholder, DummyJSON Auth) and onboarding guide panel as branch-side experiments to preserve for future refinement.
+- Reworked Traffic Import Lab into an interactive Audit Workspace with tabbed Live/Source/Import/Demo flows and clearer source-selection guidance.
+- Added project folder ingestion UX (webkitdirectory), chunked client-side file reading, and source file preview list.
+- Added built-in one-click demo scenarios (OpenWeatherMap, JSONPlaceholder, DummyJSON Auth) and onboarding guide panel.
 - Added deep replay verdict panel with status code and response preview rendering.
 - Added crawl whitelist policy (`CRAWL_DOMAIN_WHITELIST`) for safer runtime auditing.
+- Made Audit Workspace affordances explicitly visible in UI copy so operators can understand Live / Source / Import / Demo paths faster.

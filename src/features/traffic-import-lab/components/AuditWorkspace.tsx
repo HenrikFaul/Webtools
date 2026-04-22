@@ -226,11 +226,13 @@ export function AuditWorkspace() {
       {!entries.length ? (
         <div className="card">
           <h3>Guide</h3>
-          <p className="muted">1) Válassz forrást (Live / Source / Import / Demo). 2) Importáld a hívásokat. 3) Add meg a kulcsokat. 4) Futtasd a replay auditot.</p>
+          <p className="muted">1) Choose a source (Live / Source / Import / Demo). 2) Import or crawl requests. 3) Provide replay headers or token injection. 4) Run Deep Replay and compare runtime-observed vs code-inferred results.</p>
         </div>
       ) : null}
 
       <div className="card">
+        <h3>Audit Workspace – Source Selection</h3>
+        <p className="muted">Choose a source, import calls, then run Deep Replay diagnostics.</p>
         <div className="chips">
           <button className={tab === "live" ? "" : "secondary"} onClick={() => setTab("live")}>Live Web Auditor</button>
           <button className={tab === "source" ? "" : "secondary"} onClick={() => setTab("source")}>Source Code Reverse-Engineer</button>
@@ -241,7 +243,7 @@ export function AuditWorkspace() {
 
       {tab === "live" ? (
         <div className="card row two">
-          <label title="Web-Crawler audit: headless browser/network capture with SSRF/domain policy.">Runtime crawl URL ⓘ
+          <label>Runtime crawl URL
             <input value={crawlUrl} onChange={(e) => setCrawlUrl(e.target.value)} placeholder="https://example.com" />
           </label>
           <div style={{ display: "flex", alignItems: "flex-end" }}>
@@ -252,23 +254,24 @@ export function AuditWorkspace() {
 
       {tab === "source" ? (
         <div className="card row">
-          <p className="muted" title="Upload full project folder. Supported: .ts/.tsx/.js/.jsx/.env">Upload Project Folder ⓘ</p>
+          <p className="muted">Upload Project Folder</p>
           <input ref={fileInputRef} type="file" multiple onChange={(e) => void runSourceAnalysis(e.target.files)} />
+          <p className="muted">Supported source files: .ts/.tsx/.js/.jsx/.env. Files are processed in chunks and uncertain detections stay review-marked.</p>
           <div className="pre">{JSON.stringify(sourceFiles, null, 2)}</div>
         </div>
       ) : null}
 
       {tab === "import" ? (
         <div className="card row two">
-          <label title="Choose import format.">Import mode ⓘ
+          <label>Import mode
             <select value={mode} onChange={(e) => setMode(e.target.value as TrafficSourceMode)}>
               {["manual", "har_import", "openapi_import", "runtime_browser"].map((m) => <option key={m}>{m}</option>)}
             </select>
           </label>
-          <label title="Optional base URL for OpenAPI/manual normalization.">Base URL ⓘ
+          <label>Base URL (optional)
             <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
           </label>
-          <label style={{ gridColumn: "1 / -1" }} title="Paste raw lines, HAR JSON, or OpenAPI JSON.">Raw input ⓘ
+          <label style={{ gridColumn: "1 / -1" }}>Raw input
             <textarea value={rawInput} onChange={(e) => setRawInput(e.target.value)} />
           </label>
           <div style={{ gridColumn: "1 / -1" }}>
@@ -286,7 +289,7 @@ export function AuditWorkspace() {
       ) : null}
 
       <div className="card">
-        <h3>Diagnostics summary</h3>
+        <h3>Diagnostics Panel</h3>
         <p>{importResult?.summary ?? "No data imported yet."}</p>
         {(importResult?.warnings ?? []).map((warning, idx) => <p key={idx} className="muted">• {warning}</p>)}
         {importError ? <p>{importError}</p> : null}
@@ -321,7 +324,7 @@ export function AuditWorkspace() {
       </div>
 
       <div className="card">
-        <h3>Audit Workspace verdicts</h3>
+        <h3>Replay Verdicts</h3>
         <p>{replayResult?.summary ?? "No replay yet."}</p>
         {(replayResult?.results ?? []).map((r) => (
           <details key={r.id}>
@@ -330,6 +333,7 @@ export function AuditWorkspace() {
             <p>{r.verdictReason}</p>
           </details>
         ))}
+        <p className="muted">Runtime-Observed: {runtimeEntries.length} | Code-Inferred: {inferredEntries.length}</p>
       </div>
     </section>
   );

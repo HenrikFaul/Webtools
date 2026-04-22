@@ -36,3 +36,4 @@
 - Replay flows that depend on prior responses need lightweight chain support and token injection rather than only flat sequential replay.
 - Empty-state onboarding and concrete demo scenarios materially reduce setup friction compared to bare technical forms in diagnostics tools.
 - Crawl/runtime auditing needs domain-scoping safeguards so live URL analysis cannot drift into uncontrolled cross-domain inspection.
+- Audit-workspace style flows should make the available Live / Source / Import / Demo paths explicit in the UI, not only implied by internal component structure.
