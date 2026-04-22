@@ -20,5 +20,12 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
     description: "Hop-by-hop request tracing with redirect transparency and redacted evidence cards.",
     href: "/tools/request-trace-lab",
     status: "ready"
+  },
+  {
+    slug: "traffic-import-lab",
+    title: "Traffic Import Lab",
+    description: "Hybrid traffic import, manifest normalization, replay, and diagnosis workspace.",
+    href: "/tools/traffic-import-lab",
+    status: "ready"
   }
 ];
