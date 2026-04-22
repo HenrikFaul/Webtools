@@ -24,8 +24,13 @@ index 0000000000000000000000000000000000000000..968dba4713e0660c0f5860115018680b
 +- Added `Clear test results` action for clean reruns.
 +- Added single-URL mode for easy copy/paste Supabase invoke URLs.
 +- Added Supabase function inventory API + UI section with function list, invoke paths, method hints, and heuristic request/response examples.
++- Symptom: Users can think API key checks are "cached" when previous successful output remains visible.
++- Root cause: Missing explicit clear/reset action and weak auth-differential probing logic.
++- Fix: Added a dedicated result reset CTA, no-store request options, and explicit auth/no-auth probe comparison for Supabase mode.
++- Prevention: Always include a clean-state action for diagnostics tools and compare auth/no-auth probes before marking auth as valid.
 +
 +## 2026-04-22
 +- Implemented Request Trace Lab module with dedicated UI route `/tools/request-trace-lab`.
 +- Added `/api/trace-request` backend with hop-by-hop trace collection, redirect handling, SSRF guardrails, timeout controls, and redacted header previews.
 +- Updated tool registry to expose Request Trace Lab as a ready module from the dashboard.
++- New module additions should be shipped as isolated feature folders with their own API route and component boundary to avoid cross-tool coupling regressions.
