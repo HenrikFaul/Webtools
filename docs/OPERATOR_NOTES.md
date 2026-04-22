@@ -24,3 +24,4 @@
 4. Review imported manifest entries and warnings.
 5. Provide replay header name/value and run sequential replay.
 6. Inspect per-entry verdicts and reasons in replay panel.
+7. For live URL analysis, use the **Runtime crawl URL** field, then compare runtime-observed vs code-inferred sections.

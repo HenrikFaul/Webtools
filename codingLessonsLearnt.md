@@ -31,3 +31,6 @@
 
 ## 2026-04-22 — traffic import
 - Hybrid import systems must preserve uncertainty fields (`needsReview`, confidence, source evidence) instead of pretending static/runtime inference is definitive.
+- Regex-only static analysis misses wrapper-driven and env-derived endpoints; keep uncertainty but enrich with multi-pattern heuristics and review flags.
+- Runtime-observed and code-inferred entries should be shown separately in the UI to make review effort explicit.
+- Replay flows that depend on prior responses need lightweight chain support and token injection rather than only flat sequential replay.

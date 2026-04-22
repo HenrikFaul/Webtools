@@ -11,6 +11,13 @@ export interface SourceEvidence {
   detail: string;
 }
 
+export type AuditVerdict =
+  | "ok"
+  | "likely_missing_header"
+  | "likely_wrong_method"
+  | "invalid_endpoint_structure"
+  | "needs_review";
+
 export interface RequestManifestEntry {
   id: string;
   label: string;
@@ -41,6 +48,8 @@ export interface RequestManifestEntry {
   browserContextRequiredStatus: "likely_required" | "not_required" | "unknown";
   clientWrapperMutationStatus: "likely_mutated" | "not_detected" | "unknown";
   authInjectionSourceStatus: "header" | "query" | "cookie" | "unknown";
+  auditVerdict: AuditVerdict;
+  dependsOnId?: string;
 }
 
 export interface TrafficImportRequest {
@@ -60,6 +69,8 @@ export interface ManifestReplayRequest {
   headerName: string;
   headerValue: string;
   defaultMethod?: string;
+  chainMode?: boolean;
+  tokenInjection?: string;
 }
 
 export interface ManifestReplayResult {

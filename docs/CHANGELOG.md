@@ -29,3 +29,7 @@
 - Added traffic import APIs (`/api/traffic-import`, `/api/repo-analyze`, `/api/manifest-replay`) and feature-local server modules.
 - Added normalized traffic manifest data model with evidence and uncertainty fields.
 - Added sequential manifest replay bridge into existing diagnostics engine.
+- Enhanced Traffic Import Lab with live URL crawl route (`/api/crawl-traffic`) and runtime_browser integration.
+- Upgraded repo analyzer with deeper static heuristics (env vars, axios.create, SWR, TanStack Query patterns).
+- Upgraded replay engine with chain mode + token injection and template substitution from previous results.
+- Added audit verdict surfacing and explicit runtime-observed vs code-inferred panels in Traffic Import UI.
