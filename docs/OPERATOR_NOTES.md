@@ -1,3 +1,4 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 diff --git a/docs/OPERATOR_NOTES.md b/docs/OPERATOR_NOTES.md
 new file mode 100644
 index 0000000000000000000000000000000000000000..c1f63d555a3c9415a63066f0d9192423455bef35
@@ -22,3 +23,6 @@ index 0000000000000000000000000000000000000000..c1f63d555a3c9415a63066f0d9192423
 +3. Add optional headers/body.
 +4. Choose redirect mode and hop limit.
 +5. Run trace and inspect each hop card for status, location, headers, and body preview.
+ 
+EOF
+)
