@@ -19,11 +19,11 @@
 
 ## Traffic Import Lab quick usage
 1. Open **Traffic Import Lab**.
-2. Choose import mode (`manual`, `har_import`, `openapi_import`, `runtime_browser`, or `repo_static`).
-3. Paste source content and run import.
+2. Choose import mode (`manual`, `har_import`, `openapi_import`, `runtime_browser`, or `repo_static`) or switch to the Audit Workspace flow.
+3. Paste source content and run import, or use the Source/Demo tabs when available.
 4. Review imported manifest entries and warnings.
 5. Provide replay header name/value and run sequential replay.
 6. Inspect per-entry verdicts and reasons in replay panel.
-7. For live URL analysis, use the new **Runtime crawl URL** field, then compare runtime-observed vs code-inferred sections.
+7. For live URL analysis, use the **Runtime crawl URL** field, then compare runtime-observed vs code-inferred sections.
 8. Use the Audit Workspace tabs to switch between Live Web Auditor, Source Code Reverse-Engineer, Manual/HAR/OpenAPI import, and One-Click demos.
-9. For local code analysis, choose a project folder with the file picker; .ts/.tsx/.js/.jsx/.env files are parsed in chunks.
+9. For local code analysis, prefer reviewed source uploads and chunked parsing; verify inferred endpoints before relying on them for replay.

@@ -14,18 +14,92 @@ interface DemoScenario {
 const DEMOS: DemoScenario[] = [
   {
     name: "OpenWeatherMap",
-    notes: "GET + query API key demo.",
-    entries: [{ id: "demo-weather", label: "OpenWeatherMap weather", sourceMode: "manual", confidence: 1, resolvedUrl: "https://api.openweathermap.org/data/2.5/weather?q=Budapest&appid=b6907d289e10d714a6e88b30761fae22", pathTemplate: "/data/2.5/weather", method: "GET", headersTemplate: {}, queryTemplate: { q: "Budapest", appid: "b6907d289e10d714a6e88b30761fae22" }, possibleEnvironmentVariables: [], callChain: [], observedStatuses: [], responseShapeHints: [], sourceEvidence: [{ type: "manual", detail: "Built-in demo" }], needsReview: false, normalizationWarnings: [], runtimeObservedStatus: "unknown", captureConfidence: "high", specCoverageStatus: "unknown", browserContextRequiredStatus: "not_required", clientWrapperMutationStatus: "not_detected", authInjectionSourceStatus: "query", auditVerdict: "ok" }]
+    notes: "Query param API key demo.",
+    entries: [{
+      id: "demo-weather",
+      label: "OpenWeatherMap weather",
+      sourceMode: "manual",
+      confidence: 1,
+      resolvedUrl: "https://api.openweathermap.org/data/2.5/weather?q=Budapest&appid=b6907d289e10d714a6e88b30761fae22",
+      pathTemplate: "/data/2.5/weather",
+      method: "GET",
+      headersTemplate: {},
+      queryTemplate: { q: "Budapest", appid: "b6907d289e10d714a6e88b30761fae22" },
+      possibleEnvironmentVariables: [],
+      callChain: [],
+      observedStatuses: [],
+      responseShapeHints: [],
+      sourceEvidence: [{ type: "manual", detail: "Built-in demo" }],
+      needsReview: false,
+      normalizationWarnings: [],
+      runtimeObservedStatus: "unknown",
+      captureConfidence: "high",
+      specCoverageStatus: "unknown",
+      browserContextRequiredStatus: "not_required",
+      clientWrapperMutationStatus: "not_detected",
+      authInjectionSourceStatus: "query",
+      auditVerdict: "ok"
+    }]
   },
   {
     name: "JSONPlaceholder POST",
-    notes: "POST payload + custom header demo.",
-    entries: [{ id: "demo-jsonplaceholder", label: "JSONPlaceholder create post", sourceMode: "manual", confidence: 1, resolvedUrl: "https://jsonplaceholder.typicode.com/posts", pathTemplate: "/posts", method: "POST", headersTemplate: { "x-demo": "vibecoding" }, queryTemplate: {}, bodyTemplate: '{"title":"foo","body":"bar"}', possibleEnvironmentVariables: [], callChain: [], observedStatuses: [], responseShapeHints: [], sourceEvidence: [{ type: "manual", detail: "Built-in demo" }], needsReview: false, normalizationWarnings: [], runtimeObservedStatus: "unknown", captureConfidence: "high", specCoverageStatus: "unknown", browserContextRequiredStatus: "not_required", clientWrapperMutationStatus: "not_detected", authInjectionSourceStatus: "header", auditVerdict: "ok" }]
+    notes: "Payload + custom header demo.",
+    entries: [{
+      id: "demo-jsonplaceholder",
+      label: "JSONPlaceholder create post",
+      sourceMode: "manual",
+      confidence: 1,
+      resolvedUrl: "https://jsonplaceholder.typicode.com/posts",
+      pathTemplate: "/posts",
+      method: "POST",
+      headersTemplate: { "x-demo": "vibecoding" },
+      queryTemplate: {},
+      bodyTemplate: '{"title":"foo","body":"bar"}',
+      possibleEnvironmentVariables: [],
+      callChain: [],
+      observedStatuses: [],
+      responseShapeHints: [],
+      sourceEvidence: [{ type: "manual", detail: "Built-in demo" }],
+      needsReview: false,
+      normalizationWarnings: [],
+      runtimeObservedStatus: "unknown",
+      captureConfidence: "high",
+      specCoverageStatus: "unknown",
+      browserContextRequiredStatus: "not_required",
+      clientWrapperMutationStatus: "not_detected",
+      authInjectionSourceStatus: "header",
+      auditVerdict: "ok"
+    }]
   },
   {
     name: "DummyJSON Auth",
-    notes: "JWT login success/fail comparison demo.",
-    entries: [{ id: "demo-dummy-auth", label: "DummyJSON login", sourceMode: "manual", confidence: 1, resolvedUrl: "https://dummyjson.com/auth/login", pathTemplate: "/auth/login", method: "POST", headersTemplate: { "content-type": "application/json" }, queryTemplate: {}, bodyTemplate: '{"username":"kminchelle","password":"0lel09el"}', possibleEnvironmentVariables: [], callChain: [], observedStatuses: [], responseShapeHints: [], sourceEvidence: [{ type: "manual", detail: "Built-in demo" }], needsReview: false, normalizationWarnings: [], runtimeObservedStatus: "unknown", captureConfidence: "high", specCoverageStatus: "unknown", browserContextRequiredStatus: "not_required", clientWrapperMutationStatus: "not_detected", authInjectionSourceStatus: "header", auditVerdict: "ok" }]
+    notes: "Successful vs failed auth flow demo target.",
+    entries: [{
+      id: "demo-dummy-auth",
+      label: "DummyJSON login",
+      sourceMode: "manual",
+      confidence: 1,
+      resolvedUrl: "https://dummyjson.com/auth/login",
+      pathTemplate: "/auth/login",
+      method: "POST",
+      headersTemplate: { "content-type": "application/json" },
+      queryTemplate: {},
+      bodyTemplate: '{"username":"kminchelle","password":"0lel09el"}',
+      possibleEnvironmentVariables: [],
+      callChain: [],
+      observedStatuses: [],
+      responseShapeHints: [],
+      sourceEvidence: [{ type: "manual", detail: "Built-in demo" }],
+      needsReview: false,
+      normalizationWarnings: [],
+      runtimeObservedStatus: "unknown",
+      captureConfidence: "high",
+      specCoverageStatus: "unknown",
+      browserContextRequiredStatus: "not_required",
+      clientWrapperMutationStatus: "not_detected",
+      authInjectionSourceStatus: "header",
+      auditVerdict: "ok"
+    }]
   }
 ];
 
@@ -54,6 +128,9 @@ export function AuditWorkspace() {
       fileInputRef.current.setAttribute("directory", "");
     }
   }, []);
+
+  const runtimeEntries = entries.filter((e) => e.runtimeObservedStatus === "observed");
+  const inferredEntries = entries.filter((e) => e.runtimeObservedStatus !== "observed");
 
   const runCrawl = async () => {
     setLoading(true);
@@ -144,14 +221,18 @@ export function AuditWorkspace() {
     setReplayResult(null);
   };
 
-  const runtimeEntries = entries.filter((e) => e.runtimeObservedStatus === "observed");
-  const inferredEntries = entries.filter((e) => e.runtimeObservedStatus !== "observed");
-
   return (
     <section className="row" style={{ gap: 16 }}>
+      {!entries.length ? (
+        <div className="card">
+          <h3>Guide</h3>
+          <p className="muted">1) Choose a source (Live / Source / Import / Demo). 2) Import or crawl requests. 3) Provide replay headers or token injection. 4) Run Deep Replay and compare runtime-observed vs code-inferred results.</p>
+        </div>
+      ) : null}
+
       <div className="card">
         <h3>Audit Workspace – Source Selection</h3>
-        <p className="muted">Válassz forrást, importáld a hívásokat, majd futtasd a Deep Replay diagnosztikát.</p>
+        <p className="muted">Choose a source, import calls, then run Deep Replay diagnostics.</p>
         <div className="chips">
           <button className={tab === "live" ? "" : "secondary"} onClick={() => setTab("live")}>Live Web Auditor</button>
           <button className={tab === "source" ? "" : "secondary"} onClick={() => setTab("source")}>Source Code Reverse-Engineer</button>
@@ -160,19 +241,12 @@ export function AuditWorkspace() {
         </div>
       </div>
 
-      {!entries.length ? (
-        <div className="card">
-          <h3>Guide</h3>
-          <p className="muted">1) Source tab kiválasztása. 2) Import/Crawl futtatása. 3) Globális API kulcs megadása. 4) Run Deep Replay.</p>
-        </div>
-      ) : null}
-
       {tab === "live" ? (
         <div className="card row two">
-          <label>Runtime crawl URL</label>
-          <input value={crawlUrl} onChange={(e) => setCrawlUrl(e.target.value)} placeholder="https://example.com" />
-          <p className="muted" style={{ gridColumn: "1 / -1" }}>ⓘ Headless runtime audit: networkidle után fetch/xhr/websocket hívásokat gyűjt (policy szerint).</p>
-          <div style={{ gridColumn: "1 / -1" }}>
+          <label>Runtime crawl URL
+            <input value={crawlUrl} onChange={(e) => setCrawlUrl(e.target.value)} placeholder="https://example.com" />
+          </label>
+          <div style={{ display: "flex", alignItems: "flex-end" }}>
             <button onClick={() => void runCrawl()} disabled={loading || !crawlUrl}>{loading ? "Auditing…" : "Start Audit"}</button>
           </div>
         </div>
@@ -180,24 +254,26 @@ export function AuditWorkspace() {
 
       {tab === "source" ? (
         <div className="card row">
-          <label>Upload Project Folder</label>
+          <p className="muted">Upload Project Folder</p>
           <input ref={fileInputRef} type="file" multiple onChange={(e) => void runSourceAnalysis(e.target.files)} />
-          <p className="muted">ⓘ .ts/.tsx/.js/.jsx/.env fájlokat elemez chunkolt módban, uncertain jelöléssel.</p>
+          <p className="muted">Supported source files: .ts/.tsx/.js/.jsx/.env. Files are processed in chunks and uncertain detections stay review-marked.</p>
           <div className="pre">{JSON.stringify(sourceFiles, null, 2)}</div>
         </div>
       ) : null}
 
       {tab === "import" ? (
         <div className="card row two">
-          <label>Import mode</label>
-          <select value={mode} onChange={(e) => setMode(e.target.value as TrafficSourceMode)}>
-            {["manual", "har_import", "openapi_import", "runtime_browser"].map((m) => <option key={m}>{m}</option>)}
-          </select>
-          <label>Base URL (optional)</label>
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
-          <label style={{ gridColumn: "1 / -1" }}>Raw input</label>
-          <textarea value={rawInput} onChange={(e) => setRawInput(e.target.value)} />
-          <p className="muted" style={{ gridColumn: "1 / -1" }}>ⓘ HAR vagy OpenAPI JSON, illetve manuális sorok (METHOD URL) támogatottak.</p>
+          <label>Import mode
+            <select value={mode} onChange={(e) => setMode(e.target.value as TrafficSourceMode)}>
+              {["manual", "har_import", "openapi_import", "runtime_browser"].map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </label>
+          <label>Base URL (optional)
+            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com" />
+          </label>
+          <label style={{ gridColumn: "1 / -1" }}>Raw input
+            <textarea value={rawInput} onChange={(e) => setRawInput(e.target.value)} />
+          </label>
           <div style={{ gridColumn: "1 / -1" }}>
             <button onClick={() => void runImport()} disabled={loading}>{loading ? "Importing…" : "Import"}</button>
           </div>
@@ -209,7 +285,6 @@ export function AuditWorkspace() {
           {DEMOS.map((demo) => (
             <button key={demo.name} className="secondary" onClick={() => loadDemo(demo)}>{demo.name}</button>
           ))}
-          <p className="muted" style={{ gridColumn: "1 / -1" }}>ⓘ Demos: OpenWeather, JSONPlaceholder, DummyJSON Auth.</p>
         </div>
       ) : null}
 
@@ -221,19 +296,27 @@ export function AuditWorkspace() {
       </div>
 
       <div className="card">
-        <h3>Audit Inventory</h3>
-        <div className="pre">{JSON.stringify(entries.map((e) => ({ label: e.label, source: e.runtimeObservedStatus === "observed" ? "Runtime-Observed" : "Code-Inferred", verdict: e.auditVerdict })), null, 2)}</div>
+        <h3>Runtime-Observed</h3>
+        {runtimeEntries.length ? runtimeEntries.map((entry) => <p key={entry.id}>{entry.method} {entry.pathTemplate} · {entry.auditVerdict}</p>) : <p className="muted">None</p>}
+      </div>
+
+      <div className="card">
+        <h3>Code-Inferred</h3>
+        {inferredEntries.length ? inferredEntries.map((entry) => <p key={entry.id}>{entry.method} {entry.pathTemplate} · {entry.auditVerdict}</p>) : <p className="muted">None</p>}
       </div>
 
       <div className="card row two">
-        <label>Replay header name</label>
-        <input value={headerName} onChange={(e) => setHeaderName(e.target.value)} />
-        <label>Replay header value</label>
-        <input value={headerValue} onChange={(e) => setHeaderValue(e.target.value)} />
-        <label>Global API Key injection</label>
-        <input value={tokenInjection} onChange={(e) => setTokenInjection(e.target.value)} />
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="checkbox" checked={chainMode} onChange={(e) => setChainMode(e.target.checked)} style={{ width: 16 }} /> Chain Replay
+        <label title="Global header name for replay calls.">Header name ⓘ
+          <input value={headerName} onChange={(e) => setHeaderName(e.target.value)} />
+        </label>
+        <label title="Global header value for replay calls.">Header value ⓘ
+          <input value={headerValue} onChange={(e) => setHeaderValue(e.target.value)} />
+        </label>
+        <label title="Token injection adds Authorization/apikey across entries.">Global API Key injection ⓘ
+          <input value={tokenInjection} onChange={(e) => setTokenInjection(e.target.value)} />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8 }} title="Run entries dependency-aware.">
+          <input type="checkbox" checked={chainMode} onChange={(e) => setChainMode(e.target.checked)} style={{ width: 16 }} /> Chain Replay ⓘ
         </label>
         <div style={{ gridColumn: "1 / -1" }}>
           <button onClick={() => void runReplay()} disabled={replayLoading || entries.length === 0}>{replayLoading ? "Running…" : "Run Deep Replay"}</button>
