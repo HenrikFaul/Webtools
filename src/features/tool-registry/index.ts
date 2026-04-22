@@ -17,8 +17,8 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
   {
     slug: "request-trace-lab",
     title: "Request Trace Lab",
-    description: "Future module for deep hop-by-hop replay, diffing, and proxy-assisted debugging.",
-    href: "#",
-    status: "planned"
+    description: "Hop-by-hop request tracing with redirect transparency and redacted evidence cards.",
+    href: "/tools/request-trace-lab",
+    status: "ready"
   }
 ];
