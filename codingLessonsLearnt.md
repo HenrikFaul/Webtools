@@ -1,9 +1,3 @@
-diff --git a/docs/CHANGELOG.md b/docs/CHANGELOG.md
-new file mode 100644
-index 0000000000000000000000000000000000000000..968dba4713e0660c0f5860115018680bb18d215c
---- /dev/null
-+++ b/docs/CHANGELOG.md
-@@ -0,0 +1,25 @@
 +# Changelog
 +
 +## 2026-04-21
@@ -28,7 +22,6 @@ index 0000000000000000000000000000000000000000..968dba4713e0660c0f5860115018680b
 +- Root cause: Missing explicit clear/reset action and weak auth-differential probing logic.
 +- Fix: Added a dedicated result reset CTA, no-store request options, and explicit auth/no-auth probe comparison for Supabase mode.
 +- Prevention: Always include a clean-state action for diagnostics tools and compare auth/no-auth probes before marking auth as valid.
-+
 +## 2026-04-22
 +- Implemented Request Trace Lab module with dedicated UI route `/tools/request-trace-lab`.
 +- Added `/api/trace-request` backend with hop-by-hop trace collection, redirect handling, SSRF guardrails, timeout controls, and redacted header previews.
