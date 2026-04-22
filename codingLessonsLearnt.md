@@ -29,4 +29,3 @@ index 0000000000000000000000000000000000000000..968dba4713e0660c0f5860115018680b
 +- Implemented Request Trace Lab module with dedicated UI route `/tools/request-trace-lab`.
 +- Added `/api/trace-request` backend with hop-by-hop trace collection, redirect handling, SSRF guardrails, timeout controls, and redacted header previews.
 +- Updated tool registry to expose Request Trace Lab as a ready module from the dashboard.
-
