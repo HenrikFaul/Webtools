@@ -7,6 +7,19 @@ interface CrawlResult {
   warnings: string[];
 }
 
+const DEFAULT_WHITELIST = ["vercel.app", "localhost", "127.0.0.1"];
+
+function isWhitelisted(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    const envWhitelist = (process.env.CRAWL_DOMAIN_WHITELIST ?? "").split(",").map((v) => v.trim().toLowerCase()).filter(Boolean);
+    const whitelist = envWhitelist.length ? envWhitelist : DEFAULT_WHITELIST;
+    return whitelist.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+  } catch {
+    return false;
+  }
+}
+
 function entryFromUrl(url: string, idx: number, source: string, status?: number): RequestManifestEntry {
   let path = "/";
   try { path = new URL(url).pathname; } catch {}
@@ -41,6 +54,9 @@ export async function crawlTraffic(url: string): Promise<CrawlResult> {
   if (isBlockedNetworkTarget(url)) {
     return { summary: "Crawl blocked by SSRF guardrails.", entries: [], warnings: ["Target URL is private/localhost or invalid."] };
   }
+  if (!isWhitelisted(url)) {
+    return { summary: "Crawl blocked by domain whitelist policy.", entries: [], warnings: ["Add domain to CRAWL_DOMAIN_WHITELIST to allow crawling."] };
+  }
 
   const warnings: string[] = [];
   const entries: RequestManifestEntry[] = [];
@@ -52,7 +68,7 @@ export async function crawlTraffic(url: string): Promise<CrawlResult> {
     const map = new Map<string, RequestManifestEntry>();
 
     page.on("request", (req: { resourceType: () => string; method: () => string; url: () => string; headers: () => Record<string, string> }) => {
-      if (!["xhr", "fetch"].includes(req.resourceType())) return;
+      if (!["xhr", "fetch", "websocket"].includes(req.resourceType())) return;
       const key = `${req.method()}-${req.url()}`;
       map.set(key, {
         ...entryFromUrl(req.url(), map.size + 1, "Captured by Playwright request event"),
@@ -75,7 +91,7 @@ export async function crawlTraffic(url: string): Promise<CrawlResult> {
     entries.push(...Array.from(map.values()));
 
     return {
-      summary: `Captured ${entries.length} runtime XHR/fetch request(s).`,
+      summary: `Captured ${entries.length} runtime request(s).`,
       entries,
       warnings
     };

@@ -12,3 +12,4 @@
 ## 2026-04-22 (traffic import)
 - Hybrid import systems must preserve uncertainty fields (`needsReview`, confidence, source evidence) instead of pretending static/runtime inference is definitive.
 - Regex-only static analysis misses wrapper-driven and env-derived endpoints; keep uncertainty but enrich with multi-pattern heuristics and review flags.
+- Empty-state onboarding and concrete demo scenarios materially reduce setup friction compared to bare technical forms in diagnostics tools.

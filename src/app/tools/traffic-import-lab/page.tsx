@@ -1,11 +1,11 @@
-import { TrafficImportLab } from "@/features/traffic-import-lab/components/TrafficImportLab";
+import { AuditWorkspace } from "@/features/traffic-import-lab/components/AuditWorkspace";
 
 export default function TrafficImportLabPage() {
   return (
     <main className="shell">
-      <h1>Traffic Import & End-to-End Simulation Lab</h1>
-      <p className="muted">Import traffic evidence (manual/HAR/OpenAPI/repo-static), normalize into manifest entries, then replay and diagnose.</p>
-      <TrafficImportLab />
+      <h1>Audit Workspace</h1>
+      <p className="muted">Interactive, self-documenting diagnostics center for live traffic auditing, source reverse-engineering, and deep replay simulation.</p>
+      <AuditWorkspace />
     </main>
   );
 }

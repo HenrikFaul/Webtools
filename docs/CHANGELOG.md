@@ -33,3 +33,8 @@
 - Upgraded repo analyzer with deeper static heuristics (env vars, axios.create, SWR, TanStack Query patterns).
 - Upgraded replay engine with chain mode + token injection and template substitution from previous results.
 - Added audit verdict surfacing and explicit runtime-observed vs code-inferred panels in Traffic Import UI.
+- Reworked Traffic Import Lab into an interactive Audit Workspace with tabbed Live/Source/Import/Demo flows and contextual field tooltips.
+- Added project folder ingestion UX (webkitdirectory), chunked client-side file reading, and source file preview list.
+- Added built-in one-click demo scenarios (OpenWeatherMap, JSONPlaceholder, DummyJSON Auth) and onboarding guide panel.
+- Added deep replay verdict panel with status code and response preview rendering.
+- Added crawl whitelist policy (`CRAWL_DOMAIN_WHITELIST`) and websocket capture intent for runtime auditing.

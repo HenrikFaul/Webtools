@@ -25,3 +25,5 @@
 5. Provide replay header name/value and run sequential replay.
 6. Inspect per-entry verdicts and reasons in replay panel.
 7. For live URL analysis, use the new **Runtime crawl URL** field, then compare runtime-observed vs code-inferred sections.
+8. Use the Audit Workspace tabs to switch between Live Web Auditor, Source Code Reverse-Engineer, Manual/HAR/OpenAPI import, and One-Click demos.
+9. For local code analysis, choose a project folder with the file picker; .ts/.tsx/.js/.jsx/.env files are parsed in chunks.
