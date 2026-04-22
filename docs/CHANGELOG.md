@@ -18,3 +18,8 @@
 - Added `Clear test results` action for clean reruns.
 - Added single-URL mode for easy copy/paste Supabase invoke URLs.
 - Added Supabase function inventory API + UI section with function list, invoke paths, method hints, and heuristic request/response examples.
+
+## 2026-04-22
+- Implemented Request Trace Lab module with dedicated UI route `/tools/request-trace-lab`.
+- Added `/api/trace-request` backend with hop-by-hop trace collection, redirect handling, SSRF guardrails, timeout controls, and redacted header previews.
+- Updated tool registry to expose Request Trace Lab as a ready module from the dashboard.
