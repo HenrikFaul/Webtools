@@ -95,3 +95,22 @@ Required pattern for future migrations:
 Do not rely on `USING column::text::jsonb` alone; it does not fix incompatible existing DEFAULT expressions.
 
 Also: schema audit views must compare equivalent columns, not blindly require both target tables to contain every column name. `unified_pois.source_id` and `local_pois.provider_id` are equivalent business keys but not the same physical column name, so the audit must use a mapping table, not a naive same-column join.
+
+## v4.1.6 lesson - Large POI merge must be chunked even when it is database-side
+
+A database-side merge is not automatically safe if it still runs as one large RPC statement. The v4.1.5 function moved work from JavaScript into PostgreSQL, but it still performed a large target `UPDATE` plus `INSERT` in one call. On Supabase this can still fail with:
+
+```text
+Database-side merge failed: canceling statement due to statement timeout
+```
+
+Required pattern for 50k+ POI provider transfers:
+
+1. Normalize schema separately; do not combine schema repair with data movement debugging.
+2. Reset the selected provider/country target scope deliberately.
+3. Insert source rows in deterministic cursor chunks, ordered by `external_id/source_id`.
+4. Keep each RPC call small enough to finish under database statement timeout.
+5. Verify success only after all chunks finish by comparing raw distinct source keys with target rows stamped by the current session id.
+6. Avoid large `UPDATE ... FROM tmp_all_source_rows` joins for this workflow unless a proven unique index and measured execution plan exist.
+
+For this specific POI app, the simplest safe merge is reset+chunked insert, not a huge all-in-one update/upsert. The downstream local ETL uses provider/source keys, so recreating `unified_pois` rows for the selected provider is acceptable and avoids the legacy duplicate/update bottleneck.

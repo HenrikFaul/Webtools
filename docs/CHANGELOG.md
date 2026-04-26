@@ -101,3 +101,16 @@ order by table_name, ordinal_position;
 - Re-applied `id default gen_random_uuid()` explicitly after normalization as a safety guard.
 - Outcome: `public.poi_etl_schema_audit` and `public.poi_table_column_types` are created only after the schema conversion succeeds, so the audit query is meaningful and repeatable.
 - Corrected `poi_etl_schema_audit` so it compares equivalent target fields only: `unified_pois.source_id` ↔ `local_pois.provider_id`, `unified_at` ↔ `source_unified_at`, `last_merge_session` ↔ `last_load_session`, and `last_merged_at` ↔ `last_loaded_at`.
+
+## v4.1.6 - POI merge timeout fix with chunked reset+insert
+
+- Replaced the long single-statement provider merge call with a chunked database workflow:
+  - `reset_provider_pois_to_unified_merge(...)`
+  - `insert_provider_pois_to_unified_chunk(...)`
+  - `finish_provider_pois_to_unified_merge(...)`
+- Root cause fixed: the previous database-side merge still executed one large `UPDATE` + `INSERT` statement through a single RPC call, which could hit Supabase/PostgreSQL `statement timeout` before 50k+ Geoapify rows finished.
+- The merge now clears the selected provider/country scope first, then inserts raw provider rows into `unified_pois` in deterministic `source_id` cursor chunks.
+- Added provider source indexes on `(external_id)` and `(country_code, external_id)` to make cursor chunking and count verification predictable.
+- The Next.js merge route now orchestrates small RPC chunks instead of asking PostgreSQL/PostgREST to complete the whole transfer in one statement.
+- Final success is still strict: `count(distinct raw.external_id)` must equal `count(distinct unified_pois.source_id)` for the current `last_merge_session`.
+- This intentionally avoids mixed-type `COALESCE`, legacy duplicate update joins, and long-running single-statement merge behavior.
