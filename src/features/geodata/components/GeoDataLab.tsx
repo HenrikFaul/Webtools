@@ -46,6 +46,18 @@ interface ReviewRow {
 
 interface ReviewData { rows: ReviewRow[]; total: number; page: number; totalPages: number; }
 
+async function readJsonResponse<T>(response: Response): Promise<T & { error?: string }> {
+  const text = await response.text();
+  if (!text.trim()) return {} as T & { error?: string };
+
+  try {
+    return JSON.parse(text) as T & { error?: string };
+  } catch {
+    const preview = text.replace(/\s+/g, " ").trim().slice(0, 500);
+    throw new Error(`Non-JSON response from ${response.url} (HTTP ${response.status}): ${preview}`);
+  }
+}
+
 /* ================================================================== */
 
 export function GeoDataLab() {
@@ -190,7 +202,7 @@ export function GeoDataLab() {
           maxRetries: 5,
         }),
       });
-      const json = (await r.json()) as GeoMergeResponse & { error?: string };
+      const json = await readJsonResponse<GeoMergeResponse>(r);
       if (!r.ok && !json.status) {
         setMergeResult({
           status: "FAILED",
@@ -258,7 +270,7 @@ export function GeoDataLab() {
           maxRetries: localMaxRetries,
         }),
       });
-      const json = (await r.json()) as GeoLocalLoadResponse & { error?: string };
+      const json = await readJsonResponse<GeoLocalLoadResponse>(r);
       if (!r.ok && !json.status) {
         setLocalResult({
           status: "FAILED",

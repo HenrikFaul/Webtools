@@ -80,3 +80,19 @@
 - Added row-level salvage fallback and append-only `poi_etl_errors` logging if a bulk chunk fails, so one malformed POI does not drop the rest of the chunk.
 - Updated the GeoData UI merge result panel to display SUCCESS/FAILED, expected/found/missing counts, source counts, session id, duplicate warnings, and detailed merge logs.
 - Extended the idempotent SQL migration with `unified_pois.last_merge_session`, `last_merged_at`, provider/source indexes, provider source-table indexes, and `poi_etl_errors`.
+
+
+## 2026-04-26 (GeoData v4.1.1 merge hotfix – non-blocking existing-key lookup)
+- Fixed a regression in `/api/geodata/merge` where the diagnostic existing-key pre-lookup could abort the whole merge before any UPSERT was attempted.
+- Root cause: the previous v4.1.0 implementation used a large Supabase/PostgREST `.in("source_id", sourceIds)` request to split UI counters into inserted vs updated. With large Geoapify chunks this lookup can hit parser/URL/request limits and return an empty Supabase error message, causing `Existing unified key lookup failed:` and a zeroed FAILED response.
+- Changed existing-key lookup to run in small 100-id chunks and made it non-blocking. If a diagnostic lookup page fails, the merge continues and final success is still based on the authoritative `last_merge_session` parity check.
+- Reduced default merge batch size to 500 and capped the UI-requested batch size at 1000 to keep Supabase payloads and diagnostic queries below safer operational limits.
+- Added a hard failure hint only for real schema/constraint issues such as missing `last_merge_session`, missing `last_merged_at`, or missing `ON CONFLICT` uniqueness support. These still require running the migration before retrying.
+
+## 2026-04-26 (GeoData v4.1.2 merge route hardening – database-side set merge + JSON-safe client)
+- Replaced the high-volume `/api/geodata/merge` JavaScript/PostgREST chunk processor with a database-side `public.merge_provider_pois_to_unified(...)` RPC that performs set-based `UPDATE` + `INSERT INTO ... SELECT FROM` work inside PostgreSQL.
+- Root cause addressed: moving 52k+ Geoapify POIs through a serverless Next.js route can time out or return a generic non-JSON platform error before the UI receives structured logs. The raw-provider-to-unified merge now executes where the data lives, instead of serializing every POI through the API route.
+- Removed the migration dependency on creating a new unique index for `unified_pois(source_provider, source_id)`, because older partial/failed merges may already contain duplicates and a forced unique index can abort the migration before the fix is installed.
+- The new RPC validates by `count(distinct source_id)` filtered by the current `last_merge_session`, so duplicate legacy rows do not hide or falsely create data-loss results.
+- Hardened the frontend merge/local ETL response parser so non-JSON platform errors are shown as readable diagnostic text instead of `Unexpected token ... is not valid JSON`.
+- Kept the existing UI result contract: raw source, expected distinct, found, missing, inserted, updated, duplicate source keys, session id, and retry logs are still displayed.

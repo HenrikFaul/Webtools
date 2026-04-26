@@ -63,3 +63,19 @@
 - Fix: provider merge must use chunked bulk UPSERT, update a per-run session id on every affected target row, and verify target count by that session id before reporting SUCCESS.
 - Prevention: every ETL boundary needs its own current-run session column and exact expected/found/missing metrics. Never allow a downstream step to be considered globally successful solely because it matched a previously truncated intermediate table.
 - Prevention: bulk chunks may fail due to a few malformed rows; the correct fallback is row-level salvage for that failed chunk plus append-only dead-letter logging, not rollback of thousands of valid records.
+
+
+## 2026-04-26 — GeoData v4.1.1 merge hotfix lessons
+- Symptom: the merge UI returned `FAILED` with `Raw source: 0`, `Expected distinct: 0`, `Found: 0`, and the error text `Existing unified key lookup failed:` even though the raw `geoapify_pois` table contained 52k+ rows.
+- Root cause: the existing-key lookup was only diagnostic, but it was implemented as one large Supabase `.in("source_id", sourceIds)` call. At high volume this can fail before the real UPSERT starts, and because it was thrown as a fatal error, the whole ETL stopped with misleading zero counters.
+- Fix: diagnostic read paths must never be allowed to block the authoritative ETL write path. The lookup is now chunked to 100 ids and converted to a non-blocking warning. The final SUCCESS/FAILED decision remains based on `last_merge_session` source-to-target parity.
+- Prevention: distinguish control-plane diagnostics from data-plane writes. Insert/update counters are useful UI information, but data integrity must be validated by session-based expected/found/missing counts.
+- Prevention: for Supabase/PostgREST `.in(...)` filters, keep ID lists small and never assume large URL-encoded filters are safe for production-sized datasets.
+
+## 2026-04-26 — GeoData v4.1.2 merge hardening lessons
+- Symptom: after the previous merge hotfix, the UI showed `Unexpected token 'A', "An error o"... is not valid JSON`. This means the frontend received a generic platform/runtime response instead of the API route's structured `GeoMergeResponse` JSON.
+- Root cause: even chunked JavaScript/PostgREST processing still kept the high-volume raw-provider-to-unified ETL inside a serverless HTTP request. For 52k+ rows this is the wrong architecture: the route can hit execution/runtime limits before it has a chance to return structured logs.
+- Fix: high-volume table-to-table ETL must run as a database-side set operation. The route now calls `public.merge_provider_pois_to_unified(...)`, which performs `UPDATE` + `INSERT INTO ... SELECT FROM` inside PostgreSQL and validates distinct source-key parity by `last_merge_session`.
+- Prevention: do not create new unique indexes on already-corrupted/intermediate ETL tables as part of a hotfix unless duplicate cleanup has been explicitly designed. A failed unique-index creation can prevent the real repair function from being installed.
+- Prevention: frontend `fetch(...).json()` is not safe for operational tooling. Always read response text first and parse JSON defensively, so gateway/runtime errors become actionable diagnostics instead of parser noise.
+- Prevention: for raw-source-to-intermediate and intermediate-to-local boundaries, each stage needs its own exact source/target parity check. A downstream green result is only meaningful after the upstream merge has also reached exact parity.
