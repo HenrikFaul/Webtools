@@ -12,18 +12,15 @@ export async function GET(req: Request) {
     const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("pageSize") ?? "50")));
 
     const allowed = ["geoapify_pois", "tomtom_pois", "unified_pois"];
-    if (!allowed.includes(table)) {
-      return NextResponse.json({ error: "Invalid table name" }, { status: 400 });
-    }
+    if (!allowed.includes(table)) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
 
     const sb = getSupabaseAdmin();
 
-    // Select common columns for display
     const columns = table === "unified_pois"
-      ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, unified_at, source_provider"
+      ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, source_provider, unified_at"
       : table === "geoapify_pois"
         ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
-        : "id, name, categories, country_code, formatted_address, lat, lon, phone, url, fetched_at, fetch_category";
+        : "id, name, categories, country_code, freeform_address, lat, lon, phone, url, fetched_at, fetch_category";
 
     let query = sb
       .from(table)
@@ -36,22 +33,16 @@ export async function GET(req: Request) {
     if (search) query = query.ilike("name", `%${search}%`);
 
     const { data, error, count } = await query;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    // Normalize tomtom's freeform_address to formatted_address for UI
+    const rows = (data ?? []).map((r: Record<string, unknown>) => ({
+      ...r,
+      formatted_address: r.formatted_address ?? r.freeform_address ?? null,
+    }));
 
-    return NextResponse.json({
-      rows: data ?? [],
-      total: count ?? 0,
-      page,
-      pageSize,
-      totalPages: Math.ceil((count ?? 0) / pageSize),
-    });
+    return NextResponse.json({ rows, total: count ?? 0, page, pageSize, totalPages: Math.ceil((count ?? 0) / pageSize) });
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Review fetch failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Review failed" }, { status: 500 });
   }
 }

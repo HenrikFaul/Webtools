@@ -1,21 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  GEOAPIFY_TOURISM_CATEGORIES,
   SUPPORTED_COUNTRIES,
-  TOMTOM_TOURISM_CATEGORIES,
+  getCategoryGroups,
+  getAllCategoryKeys,
 } from "@/types/geodata";
 import type {
+  CategoryGroup,
   GeoFetchResponse,
   GeoMergeResponse,
   GeoProvider,
   GeoStatsResponse,
 } from "@/types/geodata";
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                             */
-/* ------------------------------------------------------------------ */
 
 type Step = "select" | "download" | "review" | "merge";
 
@@ -41,116 +38,94 @@ interface ReviewRow {
   website?: string | null;
   url?: string | null;
   source_provider?: string;
-  fetched_at?: string;
-  unified_at?: string;
   fetch_category?: string | null;
+  [k: string]: unknown;
 }
 
-interface ReviewData {
-  rows: ReviewRow[];
-  total: number;
-  page: number;
-  totalPages: number;
-}
+interface ReviewData { rows: ReviewRow[]; total: number; page: number; totalPages: number; }
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                         */
-/* ------------------------------------------------------------------ */
+/* ================================================================== */
 
 export function GeoDataLab() {
   const [step, setStep] = useState<Step>("select");
   const [stats, setStats] = useState<GeoStatsResponse | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  // Selection state
   const [selectedProvider, setSelectedProvider] = useState<GeoProvider>("geoapify");
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(new Set(["HU"]));
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
-  // Download state
   const [fetchJobs, setFetchJobs] = useState<FetchJob[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [stopDownload, setStopDownload] = useState(false);
 
-  // Review state
-  const [reviewTable, setReviewTable] = useState<string>("geoapify_pois");
+  const [reviewTable, setReviewTable] = useState("geoapify_pois");
   const [reviewCountry, setReviewCountry] = useState("");
   const [reviewSearch, setReviewSearch] = useState("");
   const [reviewPage, setReviewPage] = useState(1);
   const [reviewData, setReviewData] = useState<ReviewData | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
 
-  // Merge state
   const [mergeProvider, setMergeProvider] = useState<GeoProvider>("geoapify");
   const [mergeCountry, setMergeCountry] = useState("");
   const [merging, setMerging] = useState(false);
   const [mergeResult, setMergeResult] = useState<GeoMergeResponse | null>(null);
 
-  /* ---------- Load stats ---------- */
+  const groups = useMemo(() => getCategoryGroups(selectedProvider), [selectedProvider]);
+  const allKeys = useMemo(() => getAllCategoryKeys(groups), [groups]);
+
+  /* ---------- Stats ---------- */
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
-    try {
-      const res = await fetch("/api/geodata/stats");
-      const json = (await res.json()) as GeoStatsResponse;
-      setStats(json);
-    } catch { /* ignore */ }
+    try { const r = await fetch("/api/geodata/stats"); setStats(await r.json() as GeoStatsResponse); } catch { /* */ }
     setStatsLoading(false);
   }, []);
-
   useEffect(() => { void loadStats(); }, [loadStats]);
 
-  /* ---------- Toggle helpers ---------- */
-  function toggleCountry(code: string) {
-    setSelectedCountries((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code); else next.add(code);
-      return next;
+  /* ---------- Selection helpers ---------- */
+  const toggleCountry = (code: string) => {
+    setSelectedCountries((p) => { const n = new Set(p); if (n.has(code)) n.delete(code); else n.add(code); return n; });
+  };
+
+  const toggleCategory = (key: string) => {
+    setSelectedCategories((p) => { const n = new Set(p); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  };
+
+  const toggleGroup = (group: CategoryGroup) => {
+    const groupKeys = group.items.map((i) => i.key);
+    const allSelected = groupKeys.every((k) => selectedCategories.has(k));
+    setSelectedCategories((p) => {
+      const n = new Set(p);
+      if (allSelected) { groupKeys.forEach((k) => n.delete(k)); }
+      else { groupKeys.forEach((k) => n.add(k)); }
+      return n;
     });
-  }
+  };
 
-  function toggleCategory(key: string) {
-    setSelectedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
+  const toggleAll = () => {
+    const allSelected = allKeys.every((k) => selectedCategories.has(k));
+    setSelectedCategories(allSelected ? new Set() : new Set(allKeys));
+  };
 
-  function selectAllCategories() {
-    if (selectedProvider === "geoapify") {
-      const all = GEOAPIFY_TOURISM_CATEGORIES.flatMap((g) => g.subcategories.map((s) => s.key));
-      setSelectedCategories(new Set(all));
-    } else {
-      setSelectedCategories(new Set(TOMTOM_TOURISM_CATEGORIES.map((c) => c.key)));
-    }
-  }
+  const isGroupChecked = (group: CategoryGroup) => group.items.every((i) => selectedCategories.has(i.key));
+  const isGroupIndeterminate = (group: CategoryGroup) => {
+    const some = group.items.some((i) => selectedCategories.has(i.key));
+    const all = group.items.every((i) => selectedCategories.has(i.key));
+    return some && !all;
+  };
+  const isAllChecked = allKeys.length > 0 && allKeys.every((k) => selectedCategories.has(k));
+  const isAllIndeterminate = allKeys.some((k) => selectedCategories.has(k)) && !isAllChecked;
 
-  /* ---------- Build & run jobs ---------- */
+  /* ---------- Download ---------- */
   const startDownload = useCallback(async () => {
     const cats = Array.from(selectedCategories);
     const countries = Array.from(selectedCountries);
-
-    // Build flat job list
-    const catLabels: Record<string, string> = {};
-    if (selectedProvider === "geoapify") {
-      for (const g of GEOAPIFY_TOURISM_CATEGORIES) {
-        for (const s of g.subcategories) catLabels[s.key] = s.label;
-      }
-    } else {
-      for (const c of TOMTOM_TOURISM_CATEGORIES) catLabels[c.key] = c.label;
-    }
+    const catMap: Record<string, string> = {};
+    for (const g of groups) for (const i of g.items) catMap[i.key] = i.label;
 
     const jobs: FetchJob[] = [];
-    for (const cc of countries) {
-      for (const cat of cats) {
-        jobs.push({
-          provider: selectedProvider,
-          country: cc,
-          category: cat,
-          categoryLabel: catLabels[cat] ?? cat,
-          status: "pending",
-        });
-      }
+    for (const cc of countries) for (const cat of cats) {
+      jobs.push({ provider: selectedProvider, country: cc, category: cat, categoryLabel: catMap[cat] ?? cat, status: "pending" });
     }
 
     setFetchJobs(jobs);
@@ -160,7 +135,6 @@ export function GeoDataLab() {
 
     for (let i = 0; i < jobs.length; i++) {
       if (stopDownload) break;
-
       jobs[i] = { ...jobs[i], status: "running" };
       setFetchJobs([...jobs]);
 
@@ -168,255 +142,215 @@ export function GeoDataLab() {
         const res = await fetch("/api/geodata/fetch", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            provider: jobs[i].provider,
-            countryCode: jobs[i].country,
-            category: jobs[i].category,
-          }),
+          body: JSON.stringify({ provider: jobs[i].provider, countryCode: jobs[i].country, category: jobs[i].category }),
         });
         const json = (await res.json()) as GeoFetchResponse & { error?: string };
         if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-
         jobs[i] = { ...jobs[i], status: "done", result: json };
       } catch (err) {
         jobs[i] = { ...jobs[i], status: "error", error: err instanceof Error ? err.message : "Error" };
       }
-
       setFetchJobs([...jobs]);
     }
-
     setDownloading(false);
     void loadStats();
-  }, [selectedProvider, selectedCountries, selectedCategories, stopDownload, loadStats]);
+  }, [selectedProvider, selectedCountries, selectedCategories, stopDownload, loadStats, groups]);
 
   /* ---------- Review ---------- */
   const loadReview = useCallback(async (page = 1) => {
     setReviewLoading(true);
-    try {
-      const params = new URLSearchParams({
-        table: reviewTable,
-        page: String(page),
-        pageSize: "50",
-      });
-      if (reviewCountry) params.set("country", reviewCountry);
-      if (reviewSearch) params.set("search", reviewSearch);
-
-      const res = await fetch(`/api/geodata/review?${params}`);
-      const json = (await res.json()) as ReviewData;
-      setReviewData(json);
-      setReviewPage(page);
-    } catch { /* ignore */ }
+    const params = new URLSearchParams({ table: reviewTable, page: String(page), pageSize: "50" });
+    if (reviewCountry) params.set("country", reviewCountry);
+    if (reviewSearch) params.set("search", reviewSearch);
+    try { const r = await fetch(`/api/geodata/review?${params}`); setReviewData(await r.json() as ReviewData); setReviewPage(page); } catch { /* */ }
     setReviewLoading(false);
   }, [reviewTable, reviewCountry, reviewSearch]);
 
   /* ---------- Merge ---------- */
   const runMerge = useCallback(async () => {
-    setMerging(true);
-    setMergeResult(null);
+    setMerging(true); setMergeResult(null);
     try {
-      const res = await fetch("/api/geodata/merge", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          provider: mergeProvider,
-          countryCode: mergeCountry || undefined,
-        }),
-      });
-      const json = (await res.json()) as GeoMergeResponse;
-      setMergeResult(json);
+      const r = await fetch("/api/geodata/merge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: mergeProvider, countryCode: mergeCountry || undefined }) });
+      setMergeResult(await r.json() as GeoMergeResponse);
       void loadStats();
-    } catch { /* ignore */ }
+    } catch { /* */ }
     setMerging(false);
   }, [mergeProvider, mergeCountry, loadStats]);
 
-  /* ---------- Helpers ---------- */
-  const countryName = (code: string) =>
-    SUPPORTED_COUNTRIES.find((c) => c.code === code)?.name ?? code;
-
+  /* ---------- Derived ---------- */
+  const countryName = (c: string) => SUPPORTED_COUNTRIES.find((x) => x.code === c)?.name ?? c;
   const doneJobs = fetchJobs.filter((j) => j.status === "done");
   const errorJobs = fetchJobs.filter((j) => j.status === "error");
   const totalInserted = doneJobs.reduce((s, j) => s + (j.result?.inserted ?? 0), 0);
+  const totalFromApi = doneJobs.reduce((s, j) => s + (j.result?.total ?? 0), 0);
 
-  /* ---------------------------------------------------------------- */
-  /*  Render                                                          */
-  /* ---------------------------------------------------------------- */
+  /* ---- Checkbox style helpers ---- */
+  const cbStyle: React.CSSProperties = { width: 16, height: 16, accentColor: "#4f8cff", cursor: "pointer", flexShrink: 0 };
+  const groupBg = (checked: boolean): string => checked ? "rgba(79,140,255,0.12)" : "rgba(15,22,48,0.5)";
 
+  /* ================================================================ */
   return (
     <section style={{ display: "grid", gap: 16 }}>
 
-      {/* ---- Stats dashboard ---- */}
+      {/* ---- Stats ---- */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h3 style={{ margin: 0 }}>Adatbázis statisztika</h3>
           <button className="secondary" onClick={() => void loadStats()} disabled={statsLoading} style={{ width: "auto", padding: "6px 16px", fontSize: 12 }}>
-            {statsLoading ? "Betöltés…" : "Frissítés"}
+            {statsLoading ? "…" : "Frissítés"}
           </button>
         </div>
         {stats && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginTop: 12 }}>
-            <div style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>{stats.geoapify_count}</div>
-              <div className="muted" style={{ fontSize: 12 }}>Geoapify POI</div>
-            </div>
-            <div style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#3b82f6" }}>{stats.tomtom_count}</div>
-              <div className="muted" style={{ fontSize: 12 }}>TomTom POI</div>
-            </div>
-            <div style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#f59e0b" }}>{stats.unified_count}</div>
-              <div className="muted" style={{ fontSize: 12 }}>Egyesített POI</div>
-            </div>
+            {[
+              { v: stats.geoapify_count, l: "Geoapify POI", c: "#22c55e" },
+              { v: stats.tomtom_count, l: "TomTom POI", c: "#3b82f6" },
+              { v: stats.unified_count, l: "Egyesített POI", c: "#f59e0b" },
+            ].map((s) => (
+              <div key={s.l} style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: s.c }}>{s.v.toLocaleString()}</div>
+                <div className="muted" style={{ fontSize: 12 }}>{s.l}</div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* ---- Step navigation ---- */}
+      {/* ---- Steps ---- */}
       <div className="card">
         <div className="chips">
-          {(["select", "download", "review", "merge"] as Step[]).map((s) => (
-            <button
-              key={s}
-              className={step === s ? "" : "secondary"}
-              onClick={() => setStep(s)}
-              style={{ padding: "8px 20px", width: "auto" }}
-            >
-              {s === "select" && "1. Kiválasztás"}
-              {s === "download" && "2. Letöltés"}
-              {s === "review" && "3. Ellenőrzés"}
-              {s === "merge" && "4. Egyesítés"}
+          {(["select", "download", "review", "merge"] as Step[]).map((s, i) => (
+            <button key={s} className={step === s ? "" : "secondary"} onClick={() => setStep(s)} style={{ padding: "8px 20px", width: "auto" }}>
+              {`${i + 1}. ${["Kiválasztás", "Letöltés", "Ellenőrzés", "Egyesítés"][i]}`}
             </button>
           ))}
         </div>
       </div>
 
       {/* ================================================================ */}
-      {/*  STEP 1: Selection                                               */}
+      {/*  STEP 1                                                          */}
       {/* ================================================================ */}
-      {step === "select" && (
-        <>
-          {/* Provider */}
-          <div className="card">
-            <h3 style={{ margin: "0 0 10px" }}>Szolgáltató</h3>
-            <div className="chips">
-              <button className={selectedProvider === "geoapify" ? "" : "secondary"} onClick={() => { setSelectedProvider("geoapify"); setSelectedCategories(new Set()); }} style={{ width: "auto", padding: "8px 20px" }}>
-                Geoapify
+      {step === "select" && (<>
+        {/* Provider */}
+        <div className="card">
+          <h3 style={{ margin: "0 0 10px" }}>Szolgáltató</h3>
+          <div className="chips">
+            {(["geoapify", "tomtom"] as GeoProvider[]).map((p) => (
+              <button key={p} className={selectedProvider === p ? "" : "secondary"} onClick={() => { setSelectedProvider(p); setSelectedCategories(new Set()); }} style={{ width: "auto", padding: "8px 24px", textTransform: "capitalize" }}>
+                {p === "geoapify" ? "Geoapify" : "TomTom"}
               </button>
-              <button className={selectedProvider === "tomtom" ? "" : "secondary"} onClick={() => { setSelectedProvider("tomtom"); setSelectedCategories(new Set()); }} style={{ width: "auto", padding: "8px 20px" }}>
-                TomTom
-              </button>
-            </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Countries */}
+        <div className="card">
+          <h3 style={{ margin: "0 0 10px" }}>Országok</h3>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {SUPPORTED_COUNTRIES.map((c) => (
+              <label key={c.code} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, background: selectedCountries.has(c.code) ? "rgba(79,140,255,0.15)" : "#1a2440", padding: "6px 12px", borderRadius: 8 }}>
+                <input type="checkbox" checked={selectedCountries.has(c.code)} onChange={() => toggleCountry(c.code)} style={cbStyle} />
+                {c.name}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Categories with group checkboxes */}
+        <div className="card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #233158", paddingBottom: 10 }}>
+            <h3 style={{ margin: 0 }}>Kategóriák ({selectedProvider})</h3>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, color: isAllChecked ? "#4f8cff" : "#9baacf" }}>
+              <input
+                type="checkbox"
+                checked={isAllChecked}
+                ref={(el) => { if (el) el.indeterminate = isAllIndeterminate; }}
+                onChange={toggleAll}
+                style={{ ...cbStyle, width: 18, height: 18 }}
+              />
+              Összes kijelölése
+            </label>
           </div>
 
-          {/* Countries */}
-          <div className="card">
-            <h3 style={{ margin: "0 0 10px" }}>Országok</h3>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {SUPPORTED_COUNTRIES.map((c) => (
-                <label key={c.code} style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, background: selectedCountries.has(c.code) ? "rgba(79,140,255,0.15)" : "#1a2440", padding: "6px 12px", borderRadius: 8 }}>
-                  <input type="checkbox" checked={selectedCountries.has(c.code)} onChange={() => toggleCountry(c.code)} style={{ width: 14 }} />
-                  {c.name} ({c.code})
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Categories */}
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ margin: 0 }}>Kategóriák ({selectedProvider})</h3>
-              <div className="chips">
-                <button className="secondary" onClick={selectAllCategories} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>Összes kijelölése</button>
-                <button className="secondary" onClick={() => setSelectedCategories(new Set())} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>Összes törlése</button>
-              </div>
-            </div>
-
-            {selectedProvider === "geoapify" ? (
-              GEOAPIFY_TOURISM_CATEGORIES.map((group) => (
-                <div key={group.key} style={{ marginBottom: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#9baacf", marginBottom: 4 }}>{group.label}</div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {group.subcategories.map((sub) => (
-                      <label key={sub.key} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12, background: selectedCategories.has(sub.key) ? "rgba(34,197,94,0.15)" : "#0f1630", padding: "4px 10px", borderRadius: 6, border: "1px solid #233158" }}>
-                        <input type="checkbox" checked={selectedCategories.has(sub.key)} onChange={() => toggleCategory(sub.key)} style={{ width: 12 }} />
-                        {sub.label}
+          <div style={{ display: "grid", gap: 12 }}>
+            {groups.map((group) => {
+              const gc = isGroupChecked(group);
+              const gi = isGroupIndeterminate(group);
+              return (
+                <div key={group.groupKey} style={{ background: groupBg(gc), border: "1px solid #233158", borderRadius: 10, padding: "10px 14px" }}>
+                  {/* Group header with checkbox */}
+                  <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", marginBottom: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={gc}
+                      ref={(el) => { if (el) el.indeterminate = gi; }}
+                      onChange={() => toggleGroup(group)}
+                      style={{ ...cbStyle, width: 17, height: 17 }}
+                    />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: gc ? "#eef3ff" : "#9baacf" }}>{group.groupLabel}</span>
+                    <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+                      {group.items.filter((i) => selectedCategories.has(i.key)).length}/{group.items.length}
+                    </span>
+                  </label>
+                  {/* Items */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 27 }}>
+                    {group.items.map((item) => (
+                      <label key={item.key} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 12, background: selectedCategories.has(item.key) ? "rgba(34,197,94,0.18)" : "#0f1630", padding: "4px 10px", borderRadius: 6, border: `1px solid ${selectedCategories.has(item.key) ? "rgba(34,197,94,0.4)" : "#233158"}`, transition: "all 0.15s" }}>
+                        <input type="checkbox" checked={selectedCategories.has(item.key)} onChange={() => toggleCategory(item.key)} style={cbStyle} />
+                        {item.label}
                       </label>
                     ))}
                   </div>
                 </div>
-              ))
-            ) : (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {TOMTOM_TOURISM_CATEGORIES.map((cat) => (
-                  <label key={cat.key} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12, background: selectedCategories.has(cat.key) ? "rgba(34,197,94,0.15)" : "#0f1630", padding: "4px 10px", borderRadius: 6, border: "1px solid #233158" }}>
-                    <input type="checkbox" checked={selectedCategories.has(cat.key)} onChange={() => toggleCategory(cat.key)} style={{ width: 12 }} />
-                    {cat.label}
-                  </label>
-                ))}
-              </div>
-            )}
+              );
+            })}
           </div>
+        </div>
 
-          {/* Start */}
-          <div className="card">
-            <p className="muted" style={{ fontSize: 13, margin: "0 0 10px" }}>
-              Kiválasztva: <strong>{selectedCountries.size}</strong> ország, <strong>{selectedCategories.size}</strong> kategória
-              = <strong>{selectedCountries.size * selectedCategories.size}</strong> lekérés ({selectedProvider})
-            </p>
-            <button onClick={() => void startDownload()} disabled={selectedCategories.size === 0 || selectedCountries.size === 0}>
-              Letöltés indítása
-            </button>
-          </div>
-        </>
-      )}
+        {/* Start */}
+        <div className="card">
+          <p className="muted" style={{ fontSize: 13, margin: "0 0 10px" }}>
+            <strong>{selectedCountries.size}</strong> ország × <strong>{selectedCategories.size}</strong> kategória = <strong>{selectedCountries.size * selectedCategories.size}</strong> API lekérés ({selectedProvider}) — NINCS limit, az összes POI letöltésre kerül.
+          </p>
+          <button onClick={() => void startDownload()} disabled={selectedCategories.size === 0 || selectedCountries.size === 0}>
+            Letöltés indítása
+          </button>
+        </div>
+      </>)}
 
       {/* ================================================================ */}
-      {/*  STEP 2: Download progress                                       */}
+      {/*  STEP 2                                                          */}
       {/* ================================================================ */}
       {step === "download" && (
         <div className="card">
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
             <h3 style={{ margin: 0 }}>Letöltés folyamata</h3>
-            {downloading && (
-              <button className="secondary" onClick={() => setStopDownload(true)} style={{ width: "auto", padding: "6px 16px" }}>Leállítás</button>
-            )}
+            {downloading && <button className="secondary" onClick={() => setStopDownload(true)} style={{ width: "auto", padding: "6px 16px" }}>Leállítás</button>}
           </div>
 
-          {/* Progress bar */}
           {fetchJobs.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ background: "#1a2440", borderRadius: 6, height: 8, overflow: "hidden" }}>
-                <div style={{
-                  background: "linear-gradient(90deg, #22c55e, #3b82f6)",
-                  height: "100%",
-                  width: `${((doneJobs.length + errorJobs.length) / fetchJobs.length) * 100}%`,
-                  transition: "width 0.3s"
-                }} />
+                <div style={{ background: "linear-gradient(90deg,#22c55e,#3b82f6)", height: "100%", width: `${((doneJobs.length + errorJobs.length) / fetchJobs.length) * 100}%`, transition: "width 0.3s" }} />
               </div>
               <div className="chips" style={{ marginTop: 8 }}>
                 <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>✓ {doneJobs.length} kész</span>
                 {errorJobs.length > 0 && <span className="chip" style={{ background: "rgba(239,68,68,0.2)", color: "#ef4444" }}>✗ {errorJobs.length} hiba</span>}
-                <span className="chip">Össz: {totalInserted} POI beszúrva</span>
+                <span className="chip">API-ról jött: {totalFromApi.toLocaleString()}</span>
+                <span className="chip">DB-be írva: {totalInserted.toLocaleString()}</span>
               </div>
             </div>
           )}
 
-          {/* Job list */}
-          <div style={{ maxHeight: 400, overflow: "auto" }}>
+          <div style={{ maxHeight: 450, overflow: "auto" }}>
             {fetchJobs.map((job, idx) => (
-              <div key={idx} style={{
-                display: "flex", alignItems: "center", gap: 8,
-                padding: "6px 8px", borderBottom: "1px solid #1a2440", fontSize: 13
-              }}>
-                <span style={{
-                  width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                  background: job.status === "done" ? "#22c55e" : job.status === "running" ? "#f59e0b" : job.status === "error" ? "#ef4444" : "#475569",
-                  animation: job.status === "running" ? "pulse 1s infinite" : undefined,
-                }} />
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderBottom: "1px solid #1a2440", fontSize: 13 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: job.status === "done" ? "#22c55e" : job.status === "running" ? "#f59e0b" : job.status === "error" ? "#ef4444" : "#475569", animation: job.status === "running" ? "pulse 1s infinite" : undefined }} />
                 <span style={{ flex: 1 }}>{countryName(job.country)}</span>
                 <span className="muted" style={{ flex: 1 }}>{job.categoryLabel}</span>
-                <span style={{ width: 80, textAlign: "right", fontSize: 11, color: job.status === "error" ? "#ef4444" : "#9baacf" }}>
-                  {job.status === "done" && `+${job.result?.inserted ?? 0}`}
-                  {job.status === "running" && "…"}
+                <span style={{ width: 100, textAlign: "right", fontSize: 11, color: job.status === "error" ? "#ef4444" : "#9baacf" }}>
+                  {job.status === "done" && `+${job.result?.inserted ?? 0} (${job.result?.total ?? 0})`}
+                  {job.status === "running" && "letöltés…"}
                   {job.status === "error" && "HIBA"}
                   {job.status === "pending" && "—"}
                 </span>
@@ -429,90 +363,86 @@ export function GeoDataLab() {
               <button onClick={() => setStep("review")}>Tovább az ellenőrzéshez →</button>
             </div>
           )}
-
           <style>{`@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }`}</style>
         </div>
       )}
 
       {/* ================================================================ */}
-      {/*  STEP 3: Review                                                  */}
+      {/*  STEP 3                                                          */}
       {/* ================================================================ */}
-      {step === "review" && (
-        <>
-          <div className="card row two">
-            <label>Tábla
-              <select value={reviewTable} onChange={(e) => { setReviewTable(e.target.value); setReviewData(null); }}>
-                <option value="geoapify_pois">Geoapify POI-k</option>
-                <option value="tomtom_pois">TomTom POI-k</option>
-                <option value="unified_pois">Egyesített POI-k</option>
-              </select>
-            </label>
-            <label>Ország szűrő
-              <select value={reviewCountry} onChange={(e) => setReviewCountry(e.target.value)}>
-                <option value="">Mind</option>
-                {SUPPORTED_COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
-              </select>
-            </label>
-            <label style={{ gridColumn: "1 / -1" }}>Keresés név szerint
-              <input value={reviewSearch} onChange={(e) => setReviewSearch(e.target.value)} placeholder="Pl: Hilton, Balaton…" />
-            </label>
-            <div style={{ gridColumn: "1 / -1" }}>
-              <button onClick={() => void loadReview(1)} disabled={reviewLoading}>{reviewLoading ? "Betöltés…" : "Lekérés"}</button>
+      {step === "review" && (<>
+        <div className="card row two">
+          <label>Tábla
+            <select value={reviewTable} onChange={(e) => { setReviewTable(e.target.value); setReviewData(null); }}>
+              <option value="geoapify_pois">Geoapify POI-k</option>
+              <option value="tomtom_pois">TomTom POI-k</option>
+              <option value="unified_pois">Egyesített POI-k</option>
+            </select>
+          </label>
+          <label>Ország
+            <select value={reviewCountry} onChange={(e) => setReviewCountry(e.target.value)}>
+              <option value="">Mind</option>
+              {SUPPORTED_COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+          </label>
+          <label style={{ gridColumn: "1 / -1" }}>Keresés név szerint
+            <input value={reviewSearch} onChange={(e) => setReviewSearch(e.target.value)} placeholder="Pl: Hilton, Balaton…" />
+          </label>
+          <div style={{ gridColumn: "1 / -1" }}>
+            <button onClick={() => void loadReview(1)} disabled={reviewLoading}>{reviewLoading ? "Betöltés…" : "Lekérés"}</button>
+          </div>
+        </div>
+        {reviewData && (
+          <div className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span className="muted" style={{ fontSize: 13 }}>Összesen: <strong>{reviewData.total.toLocaleString()}</strong> rekord · Oldal {reviewData.page}/{reviewData.totalPages}</span>
+              <div className="chips">
+                <button className="secondary" disabled={reviewPage <= 1} onClick={() => void loadReview(reviewPage - 1)} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>← Előző</button>
+                <button className="secondary" disabled={reviewPage >= reviewData.totalPages} onClick={() => void loadReview(reviewPage + 1)} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>Következő →</button>
+              </div>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                <thead><tr style={{ borderBottom: "2px solid #233158" }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Név</th>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Ország</th>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Cím</th>
+                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Kategóriák</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right" }}>Lat</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right" }}>Lon</th>
+                  {reviewTable === "unified_pois" && <th style={{ padding: "6px 8px", textAlign: "left" }}>Forrás</th>}
+                </tr></thead>
+                <tbody>
+                  {reviewData.rows.map((row) => (
+                    <tr key={row.id} style={{ borderBottom: "1px solid #1a2440" }}>
+                      <td style={{ padding: "6px 8px", fontWeight: 500 }}>{row.name ?? "—"}</td>
+                      <td style={{ padding: "6px 8px" }}>{row.country_code}</td>
+                      <td style={{ padding: "6px 8px", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.formatted_address ?? "—"}</td>
+                      <td style={{ padding: "6px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(row.categories ?? []).slice(0, 3).join(", ")}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat?.toFixed(4)}</td>
+                      <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon?.toFixed(4)}</td>
+                      {reviewTable === "unified_pois" && <td style={{ padding: "6px 8px" }}>
+                        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: row.source_provider === "geoapify" ? "rgba(34,197,94,0.2)" : "rgba(59,130,246,0.2)", color: row.source_provider === "geoapify" ? "#22c55e" : "#3b82f6" }}>
+                          {row.source_provider}
+                        </span>
+                      </td>}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-
-          {reviewData && (
-            <div className="card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <span className="muted" style={{ fontSize: 13 }}>
-                  Összesen: <strong>{reviewData.total}</strong> rekord · Oldal {reviewData.page}/{reviewData.totalPages}
-                </span>
-                <div className="chips">
-                  <button className="secondary" disabled={reviewPage <= 1} onClick={() => void loadReview(reviewPage - 1)} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>← Előző</button>
-                  <button className="secondary" disabled={reviewPage >= reviewData.totalPages} onClick={() => void loadReview(reviewPage + 1)} style={{ width: "auto", padding: "4px 12px", fontSize: 11 }}>Következő →</button>
-                </div>
-              </div>
-
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ borderBottom: "2px solid #233158" }}>
-                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Név</th>
-                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Ország</th>
-                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Cím</th>
-                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Kategóriák</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Lat</th>
-                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Lon</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reviewData.rows.map((row) => (
-                      <tr key={row.id} style={{ borderBottom: "1px solid #1a2440" }}>
-                        <td style={{ padding: "6px 8px", fontWeight: 500 }}>{row.name ?? "—"}</td>
-                        <td style={{ padding: "6px 8px" }}>{row.country_code}</td>
-                        <td style={{ padding: "6px 8px", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.formatted_address ?? "—"}</td>
-                        <td style={{ padding: "6px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(row.categories ?? []).slice(0, 3).join(", ")}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat.toFixed(4)}</td>
-                        <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon.toFixed(4)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+        )}
+      </>)}
 
       {/* ================================================================ */}
-      {/*  STEP 4: Merge to unified                                        */}
+      {/*  STEP 4                                                          */}
       {/* ================================================================ */}
       {step === "merge" && (
         <div className="card">
-          <h3 style={{ margin: "0 0 12px" }}>Egyesítés – átmásolás a közös címtáblába</h3>
+          <h3 style={{ margin: "0 0 12px" }}>Egyesítés – áttöltés a közös címtáblába</h3>
           <p className="muted" style={{ fontSize: 13, margin: "0 0 12px" }}>
-            A kiválasztott szolgáltató és ország címadatait átmásolja az egyesített (unified_pois) táblába.
-            Már meglévő rekordokat nem ír felül, csak a hiányzó mezőket pótolja.
+            Az összes mezőt átmásolja az egyesített táblába. Meglévő rekordokból csak a hiányzó adatokat pótolja — nem ír felül, nem duplikál. A <strong>forrás (source_provider)</strong> oszlop jelzi az eredetét.
           </p>
           <div className="row two">
             <label>Forrás szolgáltató
@@ -529,11 +459,8 @@ export function GeoDataLab() {
             </label>
           </div>
           <div style={{ marginTop: 12 }}>
-            <button onClick={() => void runMerge()} disabled={merging}>
-              {merging ? "Egyesítés folyamatban…" : "Egyesítés indítása"}
-            </button>
+            <button onClick={() => void runMerge()} disabled={merging}>{merging ? "Egyesítés folyamatban…" : "Egyesítés indítása"}</button>
           </div>
-
           {mergeResult && (
             <div style={{ marginTop: 12, padding: 12, background: "#1a2440", borderRadius: 10 }}>
               <div className="chips">
@@ -552,16 +479,16 @@ export function GeoDataLab() {
         </div>
       )}
 
-      {/* ---- Info card ---- */}
+      {/* ---- Info ---- */}
       {step === "select" && (
         <div className="card">
           <h3 style={{ margin: "0 0 8px" }}>Hogyan működik?</h3>
           <div className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
-            <strong>1. Kiválasztás:</strong> Válaszd ki a szolgáltatót (Geoapify/TomTom), az országo(ka)t és a turisztikai kategóriákat.<br />
-            <strong>2. Letöltés:</strong> A rendszer végigmegy minden ország+kategória kombináción és az API-ról letölti a POI-kat a szolgáltató-specifikus táblába.<br />
-            <strong>3. Ellenőrzés:</strong> Az Ellenőrzés fülön böngészheted és szűrheted a letöltött címadatokat.<br />
-            <strong>4. Egyesítés:</strong> Az Egyesítés gombbal áttöltheted az adatokat a közös egyesített címtáblába (unified_pois), amelyet más webalkalmazásaid felé kiajánlhatsz. A rendszer nem duplikál — a már meglévő rekordokból csak a hiányzó adatmezőket pótolja.<br /><br />
-            <strong>Szükséges env vars:</strong> <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>, <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>
+            <strong>1.</strong> Válaszd ki a szolgáltatót, országo(ka)t, és a kategóriákat (csoportonként vagy egyenként).<br />
+            <strong>2.</strong> A rendszer az API-ról az <em>összes</em> POI-t letölti — nincs mesterséges limit.<br />
+            <strong>3.</strong> Ellenőrizd a letöltött címeket a harmadik fülön szűréssel/lapozással.<br />
+            <strong>4.</strong> Egyesítsd a közös címtáblába — a rendszer nem duplikál, csak hiányzó mezőket pótol.<br /><br />
+            <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>
           </div>
         </div>
       )}
