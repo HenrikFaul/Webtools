@@ -142,3 +142,49 @@ create index if not exists local_pois_source_provider_country_idx
 
 comment on column public.local_pois.last_load_session is
   'ETL session UUID. Updated on every current-run UPSERT so exact current-run target parity can be verified.';
+
+-- v4.1.0 POI merge hardening: session-backed verification for raw provider -> unified_pois.
+-- Safe append-only additions. They do not delete or rewrite existing POI data.
+alter table public.unified_pois add column if not exists last_merge_session uuid;
+alter table public.unified_pois add column if not exists last_merged_at timestamptz;
+
+create index if not exists unified_pois_last_merge_session_idx
+  on public.unified_pois (last_merge_session);
+
+create index if not exists unified_pois_source_provider_country_idx
+  on public.unified_pois (source_provider, country_code);
+
+create index if not exists unified_pois_source_provider_source_id_idx
+  on public.unified_pois (source_provider, source_id);
+
+create unique index if not exists unified_pois_source_provider_source_id_uidx
+  on public.unified_pois (source_provider, source_id);
+
+create index if not exists geoapify_pois_external_id_idx
+  on public.geoapify_pois (external_id);
+
+create index if not exists geoapify_pois_country_external_id_idx
+  on public.geoapify_pois (country_code, external_id);
+
+create index if not exists tomtom_pois_external_id_idx
+  on public.tomtom_pois (external_id);
+
+create index if not exists tomtom_pois_country_external_id_idx
+  on public.tomtom_pois (country_code, external_id);
+
+create table if not exists public.poi_etl_errors (
+  id uuid primary key default gen_random_uuid(),
+  job_id uuid,
+  provider text,
+  source_id text,
+  phase text not null,
+  error_message text not null,
+  raw_data jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists poi_etl_errors_job_id_idx
+  on public.poi_etl_errors (job_id);
+
+comment on column public.unified_pois.last_merge_session is
+  'Merge session UUID. Updated on every current-run UPSERT so raw provider -> unified parity can be verified.';

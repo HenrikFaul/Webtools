@@ -177,12 +177,69 @@ export function GeoDataLab() {
 
   /* ---------- Merge ---------- */
   const runMerge = useCallback(async () => {
-    setMerging(true); setMergeResult(null);
+    setMerging(true);
+    setMergeResult(null);
     try {
-      const r = await fetch("/api/geodata/merge", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: mergeProvider, countryCode: mergeCountry || undefined }) });
-      setMergeResult(await r.json() as GeoMergeResponse);
+      const r = await fetch("/api/geodata/merge", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: mergeProvider,
+          countryCode: mergeCountry || undefined,
+          batchSize: 1000,
+          maxRetries: 5,
+        }),
+      });
+      const json = (await r.json()) as GeoMergeResponse & { error?: string };
+      if (!r.ok && !json.status) {
+        setMergeResult({
+          status: "FAILED",
+          success: false,
+          load_session_id: "n/a",
+          provider: mergeProvider,
+          countryCode: mergeCountry || undefined,
+          inserted: 0,
+          updated: 0,
+          skipped: 0,
+          errors: [json.error ?? "HTTP " + r.status],
+          retry_logs: [],
+          raw_source_count: 0,
+          expected_count: 0,
+          found_count: 0,
+          missing_count: 0,
+          upserted: 0,
+          failed: 0,
+          duplicate_source_keys: 0,
+          attempts: 0,
+          duration_ms: 0,
+        });
+      } else {
+        setMergeResult(json);
+      }
       void loadStats();
-    } catch { /* */ }
+    } catch (err) {
+      setMergeResult({
+        status: "FAILED",
+        success: false,
+        load_session_id: "n/a",
+        provider: mergeProvider,
+        countryCode: mergeCountry || undefined,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        errors: [err instanceof Error ? err.message : "Merge failed"],
+        retry_logs: [],
+        raw_source_count: 0,
+        expected_count: 0,
+        found_count: 0,
+        missing_count: 0,
+        upserted: 0,
+        failed: 0,
+        duplicate_source_keys: 0,
+        attempts: 0,
+        duration_ms: 0,
+      });
+    }
     setMerging(false);
   }, [mergeProvider, mergeCountry, loadStats]);
 
@@ -533,16 +590,30 @@ export function GeoDataLab() {
           {mergeResult && (
             <div style={{ marginTop: 12, padding: 12, background: "#1a2440", borderRadius: 10 }}>
               <div className="chips">
-                <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>+{mergeResult.inserted} beszúrva</span>
-                <span className="chip" style={{ background: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>↻ {mergeResult.updated} frissítve</span>
-                <span className="chip">⊘ {mergeResult.skipped} kihagyva</span>
+                <span className="chip" style={{ background: mergeResult.success ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)", color: mergeResult.success ? "#22c55e" : "#ef4444" }}>{mergeResult.status}</span>
+                <span className="chip">Raw source: {mergeResult.raw_source_count.toLocaleString()}</span>
+                <span className="chip">Expected distinct: {mergeResult.expected_count.toLocaleString()}</span>
+                <span className="chip">Found: {mergeResult.found_count.toLocaleString()}</span>
+                <span className="chip">Missing: {mergeResult.missing_count.toLocaleString()}</span>
+                <span className="chip">Session: {mergeResult.load_session_id}</span>
+                <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>+{mergeResult.inserted.toLocaleString()} beszúrva</span>
+                <span className="chip" style={{ background: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>↻ {mergeResult.updated.toLocaleString()} frissítve</span>
+                <span className="chip">⊘ {mergeResult.skipped.toLocaleString()} kihagyva</span>
               </div>
-              {mergeResult.errors.length > 0 && (
-                <div style={{ marginTop: 8, color: "#ef4444", fontSize: 12 }}>
-                  {mergeResult.errors.slice(0, 5).map((e, i) => <div key={i}>• {e}</div>)}
-                  {mergeResult.errors.length > 5 && <div>…és még {mergeResult.errors.length - 5} hiba</div>}
+              {mergeResult.duplicate_source_keys > 0 && (
+                <div style={{ marginTop: 8, color: "#f59e0b", fontSize: 12 }}>
+                  Duplikált forráskulcsok: {mergeResult.duplicate_source_keys.toLocaleString()} — a validáció distinct provider/source kulcsokra történik.
                 </div>
               )}
+              {mergeResult.errors.length > 0 && (
+                <div style={{ marginTop: 8, color: "#ef4444", fontSize: 12 }}>
+                  {mergeResult.errors.slice(0, 8).map((e, i) => <div key={i}>• {e}</div>)}
+                  {mergeResult.errors.length > 8 && <div>…és még {mergeResult.errors.length - 8} hiba</div>}
+                </div>
+              )}
+              <div className="pre" style={{ marginTop: 10, maxHeight: 220 }}>
+                {mergeResult.retry_logs.length > 0 ? mergeResult.retry_logs.join("\n") : "Nincs részletes merge log."}
+              </div>
             </div>
           )}
         </div>

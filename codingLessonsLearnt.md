@@ -55,3 +55,11 @@
 - Retry logic should be delta-based: identify missing provider/source keys and retry only those rows, with a hard maximum retry guard.
 - Duplicate source keys make exact source-row-to-target-row parity impossible under `(provider_id, source_provider)` uniqueness and must fail loudly.
 - Schema support belongs in an idempotent migration: add `last_load_session`, the provider/source unique index, and verification indexes without deleting existing data.
+
+## 2026-04-26 — GeoData v4.1.0 POI ETL deep inspection lessons
+- Symptom: `geoapify_pois` contained 52k+ distinct raw rows, while `unified_pois` and `local_pois` contained only ~2.7k Geoapify rows, yet the local ETL showed green.
+- Root cause: local ETL validation was mathematically correct only for its immediate source (`unified_pois`), but the earlier raw-provider-to-unified merge was the actual truncation point. A green downstream ETL can hide upstream data loss if every pipeline stage does not have its own source-to-target parity check.
+- Previous merge implementation used an N+1 per-row pattern against Supabase (`select maybeSingle` then row insert/update). At high volume this is timeout-prone and can leave a partial target without an enterprise-grade verification gate.
+- Fix: provider merge must use chunked bulk UPSERT, update a per-run session id on every affected target row, and verify target count by that session id before reporting SUCCESS.
+- Prevention: every ETL boundary needs its own current-run session column and exact expected/found/missing metrics. Never allow a downstream step to be considered globally successful solely because it matched a previously truncated intermediate table.
+- Prevention: bulk chunks may fail due to a few malformed rows; the correct fallback is row-level salvage for that failed chunk plus append-only dead-letter logging, not rollback of thousands of valid records.

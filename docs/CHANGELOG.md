@@ -70,3 +70,13 @@
 - Added local ETL UI step with orange/running, green/success, red/failure status lamp and detailed retry logs.
 - Added `local_pois` review support and local count in the GeoData stats panel.
 - Added idempotent Supabase SQL migration for `local_pois` session tracking, unique conflict key, and verification indexes.
+
+## 2026-04-26 (GeoData v4.1.0 POI ETL deep inspection + merge hardening)
+- Root-cause isolated: the old GeoData merge endpoint moved raw provider rows into `unified_pois` with an N+1 pattern (`select maybeSingle` + row-level insert/update per POI). At 52k+ Geoapify rows this can hit frontend/serverless timeout windows and leave `unified_pois` partially populated, while the later local ETL still reports green because it only validates against the already-truncated `unified_pois` source.
+- Rewrote `/api/geodata/merge` as a chunked bulk UPSERT pipeline from raw provider tables into `unified_pois`.
+- Added per-merge UUID `last_merge_session` tracking on `unified_pois` so raw-provider-to-unified parity is verified against the current run, not old rows.
+- Added exact verification metrics to merge responses: raw source count, expected distinct provider/source count, found count, missing count, duplicate source keys, attempts, duration, and retry logs.
+- Added delta retry logic for missing source ids after merge verification.
+- Added row-level salvage fallback and append-only `poi_etl_errors` logging if a bulk chunk fails, so one malformed POI does not drop the rest of the chunk.
+- Updated the GeoData UI merge result panel to display SUCCESS/FAILED, expected/found/missing counts, source counts, session id, duplicate warnings, and detailed merge logs.
+- Extended the idempotent SQL migration with `unified_pois.last_merge_session`, `last_merged_at`, provider/source indexes, provider source-table indexes, and `poi_etl_errors`.
