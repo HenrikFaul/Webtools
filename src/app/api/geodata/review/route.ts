@@ -35,8 +35,11 @@ export async function GET(req: Request) {
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Normalize tomtom's freeform_address to formatted_address for UI
-    const rows = (data ?? []).map((r: Record<string, unknown>) => ({
+    // Normalize TomTom's freeform_address to formatted_address for UI.
+    // Supabase's type-level select parser can infer ParserError for dynamic column strings,
+    // so cast only after the runtime error branch has been handled.
+    const rawRows = (data ?? []) as unknown as Array<Record<string, unknown>>;
+    const rows = rawRows.map((r) => ({
       ...r,
       formatted_address: r.formatted_address ?? r.freeform_address ?? null,
     }));
