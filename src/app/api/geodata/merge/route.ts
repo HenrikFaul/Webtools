@@ -5,9 +5,10 @@ import type { GeoMergeRequest, GeoMergeResponse, GeoProvider } from "@/types/geo
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const DEFAULT_BATCH_SIZE = 1000;
+const DEFAULT_BATCH_SIZE = 500;
 const MIN_BATCH_SIZE = 100;
-const MAX_BATCH_SIZE = 5000;
+const MAX_BATCH_SIZE = 1000;
+const EXISTING_KEY_LOOKUP_CHUNK = 100;
 const DEFAULT_MAX_RETRIES = 5;
 const MAX_RETRY_LIMIT = 10;
 const TARGET_PAGE_SIZE = 1000;
@@ -230,22 +231,39 @@ async function fetchExistingUnifiedKeys(
   sb: SupabaseAdmin,
   provider: GeoProvider,
   sourceIds: string[],
-): Promise<Set<string>> {
+  logs: string[],
+): Promise<{ keys: Set<string>; reliable: boolean }> {
   const existing = new Set<string>();
-  if (sourceIds.length === 0) return existing;
+  if (sourceIds.length === 0) return { keys: existing, reliable: true };
 
-  const { data, error } = await sb
-    .from("unified_pois")
-    .select("source_id")
-    .eq("source_provider", provider)
-    .in("source_id", sourceIds);
+  let reliable = true;
 
-  if (error) throw new Error(`Existing unified key lookup failed: ${error.message}`);
-  for (const row of (data ?? []) as Array<{ source_id?: string | number | null }>) {
-    const key = asString(row.source_id);
-    if (key) existing.add(key);
+  // This lookup is diagnostic only. Keep it small and non-blocking: a large
+  // PostgREST .in(...) URL can fail before the real UPSERT even starts.
+  for (let i = 0; i < sourceIds.length; i += EXISTING_KEY_LOOKUP_CHUNK) {
+    const ids = sourceIds.slice(i, i + EXISTING_KEY_LOOKUP_CHUNK);
+    const { data, error } = await sb
+      .from("unified_pois")
+      .select("source_id")
+      .eq("source_provider", provider)
+      .in("source_id", ids);
+
+    if (error) {
+      reliable = false;
+      logs.push(
+        `Non-blocking existing-key lookup warning for ${provider}, ids ${i + 1}-${i + ids.length}: ${error.message || "Supabase returned an empty error message"}. ` +
+        "Continuing merge; success will be verified by last_merge_session parity, not by this diagnostic lookup.",
+      );
+      continue;
+    }
+
+    for (const row of (data ?? []) as Array<{ source_id?: string | number | null }>) {
+      const key = asString(row.source_id);
+      if (key) existing.add(key);
+    }
   }
-  return existing;
+
+  return { keys: existing, reliable };
 }
 
 async function recordDeadLetter(
@@ -285,7 +303,7 @@ async function upsertUnifiedChunk(
   }
   const deduped = Array.from(bySourceId.values());
   const keys = deduped.map((row) => row.source_id);
-  const existing = await fetchExistingUnifiedKeys(sb, provider, keys);
+  const existingLookup = await fetchExistingUnifiedKeys(sb, provider, keys, logs);
 
   try {
     const { error } = await sb
@@ -297,19 +315,33 @@ async function upsertUnifiedChunk(
 
     if (error) throw error;
 
-    for (const key of keys) {
-      if (existing.has(key)) stats.updated++;
-      else stats.inserted++;
+    if (existingLookup.reliable) {
+      for (const key of keys) {
+        if (existingLookup.keys.has(key)) stats.updated++;
+        else stats.inserted++;
+      }
+    } else {
+      // The existing-key lookup is diagnostic only. Do not block the ETL or
+      // report false precision when the lookup was refused by PostgREST.
+      stats.updated += deduped.length;
     }
     stats.processed += rows.length;
     stats.upserted += deduped.length;
     return stats;
   } catch (err) {
     const bulkMessage = err instanceof Error ? err.message : String(err);
-    const hint = bulkMessage.includes("last_merge_session")
-      ? " Run supabase/migrations/20260426164500_local_pois_self_healing_etl.sql before retrying."
-      : "";
-    errors.push(`Bulk upsert failed for ${provider}; falling back to row-level salvage. ${bulkMessage}.${hint}`);
+    const migrationHint = " Run supabase/migrations/20260426164500_local_pois_self_healing_etl.sql before retrying.";
+    const isSchemaError =
+      bulkMessage.includes("last_merge_session") ||
+      bulkMessage.includes("last_merged_at") ||
+      bulkMessage.includes("unique or exclusion constraint") ||
+      bulkMessage.includes("ON CONFLICT");
+
+    if (isSchemaError) {
+      throw new Error(`Critical unified_pois schema/constraint problem during bulk upsert for ${provider}: ${bulkMessage}.${migrationHint}`);
+    }
+
+    errors.push(`Bulk upsert failed for ${provider}; falling back to row-level salvage. ${bulkMessage}.`);
 
     for (const row of deduped) {
       try {
@@ -321,8 +353,12 @@ async function upsertUnifiedChunk(
           });
 
         if (error) throw error;
-        if (existing.has(row.source_id)) stats.updated++;
-        else stats.inserted++;
+        if (existingLookup.reliable) {
+          if (existingLookup.keys.has(row.source_id)) stats.updated++;
+          else stats.inserted++;
+        } else {
+          stats.updated++;
+        }
         stats.upserted++;
       } catch (rowErr) {
         const rowMessage = rowErr instanceof Error ? rowErr.message : String(rowErr);
