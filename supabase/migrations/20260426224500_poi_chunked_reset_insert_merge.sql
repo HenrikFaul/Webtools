@@ -124,7 +124,10 @@ declare
   v_duplicate_source_keys integer := 0;
   v_deleted integer := 0;
 begin
-  perform set_config('statement_timeout', '0', true);
+  -- session-level (is_local=false) so the setting persists for the whole PostgREST connection,
+  -- not just the current sub-transaction.  This is the correct way to disable PostgREST's
+  -- statement_timeout for long-running provider merges.
+  perform set_config('statement_timeout', '0', false);
 
   if v_provider not in ('geoapify', 'tomtom') then
     return jsonb_build_object(
@@ -243,7 +246,7 @@ declare
   v_has_more boolean := false;
   v_now timestamptz := now();
 begin
-  perform set_config('statement_timeout', '0', true);
+  perform set_config('statement_timeout', '0', false);
 
   if v_provider not in ('geoapify', 'tomtom') then
     return jsonb_build_object(
@@ -526,7 +529,7 @@ declare
   v_found integer := 0;
   v_missing integer := 0;
 begin
-  perform set_config('statement_timeout', '0', true);
+  perform set_config('statement_timeout', '0', false);
 
   if v_provider = 'geoapify' then
     select count(*)::integer,
