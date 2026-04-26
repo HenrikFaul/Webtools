@@ -71,10 +71,23 @@
 - Added `local_pois` review support and local count in the GeoData stats panel.
 - Added idempotent Supabase SQL migration for `local_pois` session tracking, unique conflict key, and verification indexes.
 
-## v4.1.3 - POI merge database-side type-safe hotfix
+## v4.1.4 — POI ETL schema alignment and database-side merge hardening
 
-- Replaced the provider-to-unified merge API implementation with a thin RPC caller.
-- Added/updated `public.merge_provider_pois_to_unified(...)` to move Geoapify/TomTom rows using set-based PostgreSQL `UPDATE` + `INSERT` logic instead of JS/PostgREST row loops.
-- Fixed the production failure `COALESCE types text and jsonb cannot be matched` by removing mixed text/jsonb coalescing and casting provider-specific columns explicitly.
-- The merge now validates `count(distinct source_id)` for the current `last_merge_session` and only returns `SUCCESS` when source distinct count equals target session count.
-- No destructive cleanup or forced unique index was added, so existing legacy rows are not deleted and regression risk is minimized.
+- Replaced the fragile JavaScript row-by-row provider merge with the PostgreSQL RPC `public.merge_provider_pois_to_unified(...)`.
+- Added canonical schema hardening for `unified_pois` and `local_pois`, including explicit type normalization for text, jsonb, boolean, numeric and timestamp columns.
+- Added safe SQL cast helpers so provider source rows can be mapped without `COALESCE text/jsonb` failures.
+- Added schema audit views:
+  - `public.poi_etl_schema_audit`
+  - `public.poi_table_column_types`
+- Hardened the GeoData frontend merge result rendering so an API/database failure cannot crash the whole page through `undefined.length`.
+- The merge endpoint now always returns a structured JSON result with `status`, `errors`, `merge_logs`, counts and session id.
+
+Validation SQL after migration:
+
+```sql
+select * from public.poi_etl_schema_audit where not unified_ok or not local_ok;
+select table_name, column_name, data_type, character_maximum_length
+from public.poi_table_column_types
+where table_name in ('geoapify_pois','tomtom_pois','unified_pois','local_pois')
+order by table_name, ordinal_position;
+```

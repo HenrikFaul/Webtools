@@ -1,111 +1,108 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { GeoMergeRequest } from "@/types/geodata";
+import type { GeoMergeRequest, GeoMergeResponse, GeoProvider } from "@/types/geodata";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-type RpcMergeResult = {
-  status?: "SUCCESS" | "FAILED";
-  success?: boolean;
-  provider?: string;
-  countryCode?: string | null;
-  merge_session_id?: string;
-  raw_source_count?: number;
-  expected_count?: number;
-  found_count?: number;
-  missing_count?: number;
-  inserted?: number;
-  updated?: number;
-  skipped?: number;
-  errors?: string[];
-  logs?: string[];
-  duration_ms?: number;
-};
+type RpcMergePayload = Partial<GeoMergeResponse> & Record<string, unknown>;
 
-function normalizeErrors(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item));
-  if (typeof value === "string" && value.trim()) return [value];
-  return [];
+function isProvider(value: unknown): value is GeoProvider {
+  return value === "geoapify" || value === "tomtom";
 }
 
-function normalizeLogs(value: unknown): string[] {
-  if (Array.isArray(value)) return value.map((item) => String(item));
-  if (typeof value === "string" && value.trim()) return [value];
-  return [];
+function asNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
 }
 
-function fail(message: string, status = 500) {
-  return NextResponse.json(
-    {
-      status: "FAILED",
-      success: false,
-      inserted: 0,
-      updated: 0,
-      skipped: 0,
-      raw_source_count: 0,
-      expected_count: 0,
-      found_count: 0,
-      missing_count: 0,
-      merge_session_id: "n/a",
-      errors: [message],
-      logs: [],
-    },
-    { status },
-  );
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item));
+}
+
+function normalizeRpcPayload(value: unknown, provider: GeoProvider, sessionId: string, countryCode?: string): GeoMergeResponse {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const obj = (raw && typeof raw === "object" ? raw : {}) as RpcMergePayload;
+  const errors = asStringArray(obj.errors);
+  const missing = asNumber(obj.missing_count);
+  const status = obj.status === "SUCCESS" && errors.length === 0 && missing === 0 ? "SUCCESS" : "FAILED";
+
+  return {
+    status,
+    success: status === "SUCCESS",
+    provider,
+    countryCode: typeof obj.countryCode === "string" ? obj.countryCode : countryCode ?? null,
+    merge_session_id: typeof obj.merge_session_id === "string" ? obj.merge_session_id : sessionId,
+    raw_source_count: asNumber(obj.raw_source_count),
+    expected_count: asNumber(obj.expected_count),
+    found_count: asNumber(obj.found_count),
+    missing_count: missing,
+    inserted: asNumber(obj.inserted),
+    updated: asNumber(obj.updated),
+    skipped: asNumber(obj.skipped),
+    duplicate_source_keys: asNumber(obj.duplicate_source_keys),
+    errors,
+    merge_logs: asStringArray(obj.merge_logs),
+  };
+}
+
+function failed(provider: GeoProvider, sessionId: string, message: string, countryCode?: string): GeoMergeResponse {
+  return {
+    status: "FAILED",
+    success: false,
+    provider,
+    countryCode: countryCode ?? null,
+    merge_session_id: sessionId,
+    raw_source_count: 0,
+    expected_count: 0,
+    found_count: 0,
+    missing_count: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    duplicate_source_keys: 0,
+    errors: [message],
+    merge_logs: [],
+  };
 }
 
 export async function POST(req: Request) {
-  let payload: GeoMergeRequest;
+  const sessionId = randomUUID();
 
   try {
-    payload = (await req.json()) as GeoMergeRequest;
-  } catch {
-    return fail("Invalid JSON request body", 400);
-  }
+    const payload = (await req.json()) as GeoMergeRequest;
+    if (!isProvider(payload.provider)) {
+      return NextResponse.json(failed("geoapify", sessionId, "provider must be geoapify or tomtom"), { status: 200 });
+    }
 
-  if (payload.provider !== "geoapify" && payload.provider !== "tomtom") {
-    return fail("provider must be geoapify or tomtom", 400);
-  }
-
-  const mergeSessionId = randomUUID();
-
-  try {
+    const provider = payload.provider;
+    const countryCode = payload.countryCode?.trim() ? payload.countryCode.trim().toUpperCase() : undefined;
     const sb = getSupabaseAdmin();
+
     const { data, error } = await sb.rpc("merge_provider_pois_to_unified", {
-      p_provider: payload.provider,
-      p_country_code: payload.countryCode || null,
-      p_session: mergeSessionId,
+      p_provider: provider,
+      p_country_code: countryCode ?? null,
+      p_session_id: sessionId,
     });
 
     if (error) {
-      return fail(`Database-side merge failed: ${error.message}`);
+      return NextResponse.json(
+        failed(provider, sessionId, `Database-side merge failed: ${error.message}`, countryCode),
+        { status: 200 },
+      );
     }
 
-    const result = (data ?? {}) as RpcMergeResult;
-    const errors = normalizeErrors(result.errors);
-    const logs = normalizeLogs(result.logs);
-    const success = result.success === true || result.status === "SUCCESS";
-
-    return NextResponse.json({
-      status: success ? "SUCCESS" : "FAILED",
-      success,
-      provider: result.provider ?? payload.provider,
-      countryCode: result.countryCode ?? payload.countryCode ?? null,
-      merge_session_id: result.merge_session_id ?? mergeSessionId,
-      raw_source_count: Number(result.raw_source_count ?? 0),
-      expected_count: Number(result.expected_count ?? 0),
-      found_count: Number(result.found_count ?? 0),
-      missing_count: Number(result.missing_count ?? 0),
-      inserted: Number(result.inserted ?? 0),
-      updated: Number(result.updated ?? 0),
-      skipped: Number(result.skipped ?? 0),
-      errors,
-      logs,
-      duration_ms: Number(result.duration_ms ?? 0),
-    });
+    return NextResponse.json(normalizeRpcPayload(data, provider, sessionId, countryCode), { status: 200 });
   } catch (err) {
-    return fail(err instanceof Error ? err.message : "Merge failed");
+    return NextResponse.json(
+      failed("geoapify", sessionId, err instanceof Error ? err.message : "Merge failed"),
+      { status: 200 },
+    );
   }
 }

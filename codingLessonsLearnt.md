@@ -56,8 +56,19 @@
 - Duplicate source keys make exact source-row-to-target-row parity impossible under `(provider_id, source_provider)` uniqueness and must fail loudly.
 - Schema support belongs in an idempotent migration: add `last_load_session`, the provider/source unique index, and verification indexes without deleting existing data.
 
-## v4.1.3 - Lesson: avoid mixed text/jsonb COALESCE in database-side ETL
+## v4.1.4 lesson — POI ETL must normalize DB column types before merge logic
 
-The provider-to-unified POI merge must not rely on JavaScript/PostgREST loops for 50k+ records, and PostgreSQL-side ETL must be explicit about column types. A production failure occurred because a merge function tried to `COALESCE` values where one side was `text` and the other side was `jsonb`. PostgreSQL correctly rejected that expression before any rows could be merged.
+Problem observed:
+- The merge flow kept failing with database type errors such as `COALESCE types text and jsonb cannot be matched`.
+- The frontend could also crash after a failed API response because it rendered `errors.length` without guaranteeing that `errors` existed.
 
-Correction: the merge RPC now casts text fields as text and json fields as jsonb separately. `opening_hours` is handled as text in `unified_pois`, while `categories`, `diet`, `payment_options`, `name_international`, and `raw_data` remain jsonb. The route only calls the RPC and normalizes the structured JSON response. The success condition is exact source-to-target parity by `last_merge_session`.
+Root cause:
+- The ETL implementation assumed compatible source/target column types without first auditing or normalizing the actual Supabase tables.
+- Large POI transfers were repeatedly being handled too much in Next.js/PostgREST JavaScript code instead of set-based PostgreSQL operations.
+
+Rule going forward:
+- Before implementing any provider-to-target POI ETL, run schema compatibility checks against `information_schema.columns`.
+- Keep `unified_pois` and `local_pois` on canonical matching datatypes. Text fields must be unlimited `text`, JSON fields must be `jsonb`, booleans must be `boolean`, coordinates must be `double precision`.
+- Do not rely on mixed-type `COALESCE`. Cast explicitly before `COALESCE`.
+- Any API response consumed by React must be normalized so arrays like `errors`, `retry_logs`, or `merge_logs` always exist before rendering.
+- For 50k+ POI rows, use database-side set-based `UPDATE` + `INSERT` logic or chunked bulk processing; never use row-by-row JS loops as the primary merge mechanism.

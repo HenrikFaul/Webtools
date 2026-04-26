@@ -46,18 +46,6 @@ interface ReviewRow {
 
 interface ReviewData { rows: ReviewRow[]; total: number; page: number; totalPages: number; }
 
-async function readJsonResponse<T>(response: Response): Promise<T & { error?: string }> {
-  const text = await response.text();
-  if (!text.trim()) return {} as T & { error?: string };
-
-  try {
-    return JSON.parse(text) as T & { error?: string };
-  } catch {
-    const preview = text.replace(/\s+/g, " ").trim().slice(0, 500);
-    throw new Error(`Non-JSON response from ${response.url} (HTTP ${response.status}): ${preview}`);
-  }
-}
-
 /* ================================================================== */
 
 export function GeoDataLab() {
@@ -188,6 +176,24 @@ export function GeoDataLab() {
   }, [reviewTable, reviewCountry, reviewSearch]);
 
   /* ---------- Merge ---------- */
+  const failedMergeResult = useCallback((message: string): GeoMergeResponse => ({
+    status: "FAILED",
+    success: false,
+    provider: mergeProvider,
+    countryCode: mergeCountry || null,
+    merge_session_id: "n/a",
+    raw_source_count: 0,
+    expected_count: 0,
+    found_count: 0,
+    missing_count: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    duplicate_source_keys: 0,
+    errors: [message],
+    merge_logs: [],
+  }), [mergeProvider, mergeCountry]);
+
   const runMerge = useCallback(async () => {
     setMerging(true);
     setMergeResult(null);
@@ -195,65 +201,32 @@ export function GeoDataLab() {
       const r = await fetch("/api/geodata/merge", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          provider: mergeProvider,
-          countryCode: mergeCountry || undefined,
-          batchSize: 1000,
-          maxRetries: 5,
-        }),
+        body: JSON.stringify({ provider: mergeProvider, countryCode: mergeCountry || undefined }),
       });
-      const json = await readJsonResponse<GeoMergeResponse>(r);
-      if (!r.ok && !json.status) {
+      const text = await r.text();
+      let json: GeoMergeResponse | { error?: string };
+      try {
+        json = text ? JSON.parse(text) as GeoMergeResponse | { error?: string } : { error: `Empty response from /api/geodata/merge, HTTP ${r.status}` };
+      } catch {
+        json = { error: text.slice(0, 300) || `Invalid JSON response from /api/geodata/merge, HTTP ${r.status}` };
+      }
+
+      if ("status" in json) {
+        const mergeJson = json as GeoMergeResponse;
         setMergeResult({
-          status: "FAILED",
-          success: false,
-          load_session_id: "n/a",
-          provider: mergeProvider,
-          countryCode: mergeCountry || undefined,
-          inserted: 0,
-          updated: 0,
-          skipped: 0,
-          errors: [json.error ?? "HTTP " + r.status],
-          retry_logs: [],
-          raw_source_count: 0,
-          expected_count: 0,
-          found_count: 0,
-          missing_count: 0,
-          upserted: 0,
-          failed: 0,
-          duplicate_source_keys: 0,
-          attempts: 0,
-          duration_ms: 0,
+          ...mergeJson,
+          errors: Array.isArray(mergeJson.errors) ? mergeJson.errors : [],
+          merge_logs: Array.isArray(mergeJson.merge_logs) ? mergeJson.merge_logs : [],
         });
       } else {
-        setMergeResult(json);
+        setMergeResult(failedMergeResult(json.error ?? `HTTP ${r.status}`));
       }
       void loadStats();
     } catch (err) {
-      setMergeResult({
-        status: "FAILED",
-        success: false,
-        load_session_id: "n/a",
-        provider: mergeProvider,
-        countryCode: mergeCountry || undefined,
-        inserted: 0,
-        updated: 0,
-        skipped: 0,
-        errors: [err instanceof Error ? err.message : "Merge failed"],
-        retry_logs: [],
-        raw_source_count: 0,
-        expected_count: 0,
-        found_count: 0,
-        missing_count: 0,
-        upserted: 0,
-        failed: 0,
-        duplicate_source_keys: 0,
-        attempts: 0,
-        duration_ms: 0,
-      });
+      setMergeResult(failedMergeResult(err instanceof Error ? err.message : "Merge failed"));
     }
     setMerging(false);
-  }, [mergeProvider, mergeCountry, loadStats]);
+  }, [mergeProvider, mergeCountry, loadStats, failedMergeResult]);
 
   /* ---------- Local ETL ---------- */
   const runLocalLoad = useCallback(async () => {
@@ -270,7 +243,7 @@ export function GeoDataLab() {
           maxRetries: localMaxRetries,
         }),
       });
-      const json = await readJsonResponse<GeoLocalLoadResponse>(r);
+      const json = (await r.json()) as GeoLocalLoadResponse & { error?: string };
       if (!r.ok && !json.status) {
         setLocalResult({
           status: "FAILED",
@@ -607,25 +580,21 @@ export function GeoDataLab() {
                 <span className="chip">Expected distinct: {mergeResult.expected_count.toLocaleString()}</span>
                 <span className="chip">Found: {mergeResult.found_count.toLocaleString()}</span>
                 <span className="chip">Missing: {mergeResult.missing_count.toLocaleString()}</span>
-                <span className="chip">Session: {mergeResult.load_session_id}</span>
+                <span className="chip">Session: {mergeResult.merge_session_id}</span>
                 <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>+{mergeResult.inserted.toLocaleString()} beszúrva</span>
                 <span className="chip" style={{ background: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>↻ {mergeResult.updated.toLocaleString()} frissítve</span>
                 <span className="chip">⊘ {mergeResult.skipped.toLocaleString()} kihagyva</span>
+                {mergeResult.duplicate_source_keys > 0 && <span className="chip" style={{ background: "rgba(245,158,11,0.2)", color: "#f59e0b" }}>Duplikált source key: {mergeResult.duplicate_source_keys.toLocaleString()}</span>}
               </div>
-              {mergeResult.duplicate_source_keys > 0 && (
-                <div style={{ marginTop: 8, color: "#f59e0b", fontSize: 12 }}>
-                  Duplikált forráskulcsok: {mergeResult.duplicate_source_keys.toLocaleString()} — a validáció distinct provider/source kulcsokra történik.
-                </div>
-              )}
-              {mergeResult.errors.length > 0 && (
+              {(mergeResult.errors ?? []).length > 0 && (
                 <div style={{ marginTop: 8, color: "#ef4444", fontSize: 12 }}>
-                  {mergeResult.errors.slice(0, 8).map((e, i) => <div key={i}>• {e}</div>)}
-                  {mergeResult.errors.length > 8 && <div>…és még {mergeResult.errors.length - 8} hiba</div>}
+                  {(mergeResult.errors ?? []).slice(0, 5).map((e, i) => <div key={i}>• {e}</div>)}
+                  {(mergeResult.errors ?? []).length > 5 && <div>…és még {(mergeResult.errors ?? []).length - 5} hiba</div>}
                 </div>
               )}
-              <div className="pre" style={{ marginTop: 10, maxHeight: 220 }}>
-                {mergeResult.retry_logs.length > 0 ? mergeResult.retry_logs.join("\n") : "Nincs részletes merge log."}
-              </div>
+              <pre style={{ marginTop: 10, whiteSpace: "pre-wrap", background: "#0f1733", padding: 12, borderRadius: 8, fontSize: 12 }}>
+                {(mergeResult.merge_logs ?? []).length > 0 ? (mergeResult.merge_logs ?? []).join("\n") : "Nincs részletes merge log."}
+              </pre>
             </div>
           )}
         </div>
@@ -711,14 +680,14 @@ export function GeoDataLab() {
                 <span className="chip">Session: {localResult.load_session_id}</span>
               </div>
 
-              {localResult.errors.length > 0 && (
+              {(localResult.errors ?? []).length > 0 && (
                 <div style={{ marginTop: 10, color: "#ef4444", fontSize: 12, lineHeight: 1.5 }}>
-                  {localResult.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                  {(localResult.errors ?? []).map((e, i) => <div key={i}>• {e}</div>)}
                 </div>
               )}
 
               <div className="pre" style={{ marginTop: 10, maxHeight: 260 }}>
-                {localResult.retry_logs.length > 0 ? localResult.retry_logs.join("\n") : "Nincs részletes log."}
+                {(localResult.retry_logs ?? []).length > 0 ? (localResult.retry_logs ?? []).join("\n") : "Nincs részletes log."}
               </div>
             </div>
           )}

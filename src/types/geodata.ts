@@ -150,27 +150,23 @@ export interface GeoStatsResponse {
   unified_by_country: Record<string, number>;
   local_by_country: Record<string, number>;
 }
-export interface GeoMergeRequest { provider: GeoProvider | "all"; countryCode?: string; batchSize?: number; maxRetries?: number; }
+export interface GeoMergeRequest { provider: GeoProvider; countryCode?: string; }
 export interface GeoMergeResponse {
   status: "SUCCESS" | "FAILED";
   success: boolean;
-  load_session_id: string;
-  provider: GeoProvider | "all" | "unknown";
-  countryCode?: string;
-  inserted: number;
-  updated: number;
-  skipped: number;
-  errors: string[];
-  retry_logs: string[];
+  provider: GeoProvider;
+  countryCode?: string | null;
+  merge_session_id: string;
   raw_source_count: number;
   expected_count: number;
   found_count: number;
   missing_count: number;
-  upserted: number;
-  failed: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
   duplicate_source_keys: number;
-  attempts: number;
-  duration_ms: number;
+  errors: string[];
+  merge_logs: string[];
 }
 
 export type GeoLocalLoadProvider = "all" | GeoProvider;
