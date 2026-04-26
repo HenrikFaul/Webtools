@@ -27,5 +27,12 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
     description: "Hybrid traffic import, manifest normalization, replay, and diagnosis workspace.",
     href: "/tools/traffic-import-lab",
     status: "ready"
+  },
+  {
+    slug: "branch-merger",
+    title: "AI Semantic Branch Merger",
+    description: "Intelligens kód-összefésülő: ZIP feltöltés, diff analízis, LLM-alapú regressziómentes merge, és letölthető eredmény.",
+    href: "/tools/branch-merger",
+    status: "ready"
   }
 ];

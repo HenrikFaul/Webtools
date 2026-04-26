@@ -40,3 +40,22 @@
 - Added deep replay verdict panel with status code and response preview rendering.
 - Added crawl whitelist policy (`CRAWL_DOMAIN_WHITELIST`) for safer runtime auditing.
 - Made Audit Workspace affordances explicitly visible in UI copy so operators can understand Live / Source / Import / Demo paths faster.
+
+## 2026-04-26 (AI Semantic Branch Merger)
+- Added AI Semantic Branch Merger module with dedicated UI route `/tools/branch-merger`.
+- Added `jszip` dependency for client-side ZIP processing (extraction and repackaging).
+- Implemented client-side ZIP extraction with automatic main/feature branch detection via top-level folder heuristics.
+- Implemented client-side diff analysis: identifies modified, unchanged, main-only, and feature-only files between two branches.
+- Added text file extension whitelist for safe extraction (skips binary files).
+- Added estimated token calculation per file pair (~4 chars/token) with MAX_TOKENS_PER_FILE guard (28k tokens).
+- Created `/api/ai-merge` Vercel Serverless Function supporting both OpenAI and Anthropic LLM providers.
+- AI merge system prompt enforces main-branch-first priority, regression prevention, and clean code-only output.
+- Added provider auto-detection from environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY, AI_MERGE_PROVIDER).
+- Added client-side API key passthrough option for users without server-side env vars configured.
+- Implemented sequential file-by-file merge with progress bar, stop control, and per-file status tracking.
+- Added file detail panel with side-by-side view of main/feature/merged versions.
+- Implemented client-side merged ZIP generation and download with merged files replacing originals, feature-only files included, and main-only files preserved.
+- Added drag-and-drop upload zone with visual feedback.
+- Added Hungarian-language UI copy and onboarding guide.
+- Added types in `src/types/branchMerger.ts` with full type coverage.
+- Updated tool registry to include Branch Merger as a ready module.

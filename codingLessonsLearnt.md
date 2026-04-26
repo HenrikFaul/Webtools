@@ -37,3 +37,12 @@
 - Empty-state onboarding and concrete demo scenarios materially reduce setup friction compared to bare technical forms in diagnostics tools.
 - Crawl/runtime auditing needs domain-scoping safeguards so live URL analysis cannot drift into uncontrolled cross-domain inspection.
 - Audit-workspace style flows should make the available Live / Source / Import / Demo paths explicit in the UI, not only implied by internal component structure.
+
+## 2026-04-26 — branch merger lessons
+- Client-side ZIP processing via JSZip avoids Vercel serverless function body size limits entirely; file content never traverses the network except for the specific diff pairs sent to the LLM.
+- Dynamic `import("jszip")` is required to avoid SSR errors; the ref must store the constructor directly, not the module namespace, because CJS/ESM default export shapes differ.
+- Token estimation (chars / 4) is deliberately conservative; real tokenizer counts vary but overestimating is safer than sending files the LLM will truncate.
+- The AI merge system prompt must explicitly forbid markdown fences in output; LLMs add them reflexively even when told not to. A post-processing strip step is essential.
+- Supporting both OpenAI and Anthropic from a single API route via env-var detection means the merge feature works with whichever provider the deployer already has credentials for.
+- Sequential file-by-file merge (not batch) is intentional: it allows per-file progress UI, stop/resume control, and avoids overloading a single LLM context window.
+- Binary file detection by extension whitelist is more reliable than content-sniffing in a browser ZIP extraction context.
