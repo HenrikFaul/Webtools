@@ -11,13 +11,13 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
     const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("pageSize") ?? "50")));
 
-    const allowed = ["geoapify_pois", "tomtom_pois", "unified_pois"];
+    const allowed = ["geoapify_pois", "tomtom_pois", "unified_pois", "local_pois"];
     if (!allowed.includes(table)) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
 
     const sb = getSupabaseAdmin();
 
-    const columns = table === "unified_pois"
-      ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, source_provider, unified_at"
+    const columns = table === "unified_pois" || table === "local_pois"
+      ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, source_provider"
       : table === "geoapify_pois"
         ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
         : "id, name, categories, country_code, freeform_address, lat, lon, phone, url, fetched_at, fetch_category";

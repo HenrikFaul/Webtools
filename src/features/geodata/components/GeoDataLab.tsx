@@ -9,12 +9,14 @@ import {
 import type {
   CategoryGroup,
   GeoFetchResponse,
+  GeoLocalLoadProvider,
+  GeoLocalLoadResponse,
   GeoMergeResponse,
   GeoProvider,
   GeoStatsResponse,
 } from "@/types/geodata";
 
-type Step = "select" | "download" | "review" | "merge";
+type Step = "select" | "download" | "review" | "merge" | "local";
 
 interface FetchJob {
   provider: GeoProvider;
@@ -70,6 +72,13 @@ export function GeoDataLab() {
   const [mergeCountry, setMergeCountry] = useState("");
   const [merging, setMerging] = useState(false);
   const [mergeResult, setMergeResult] = useState<GeoMergeResponse | null>(null);
+
+  const [localProvider, setLocalProvider] = useState<GeoLocalLoadProvider>("all");
+  const [localCountry, setLocalCountry] = useState("");
+  const [localBatchSize, setLocalBatchSize] = useState(500);
+  const [localMaxRetries, setLocalMaxRetries] = useState(5);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localResult, setLocalResult] = useState<GeoLocalLoadResponse | null>(null);
 
   const groups = useMemo(() => getCategoryGroups(selectedProvider), [selectedProvider]);
   const allKeys = useMemo(() => getAllCategoryKeys(groups), [groups]);
@@ -177,6 +186,64 @@ export function GeoDataLab() {
     setMerging(false);
   }, [mergeProvider, mergeCountry, loadStats]);
 
+  /* ---------- Local ETL ---------- */
+  const runLocalLoad = useCallback(async () => {
+    setLocalLoading(true);
+    setLocalResult(null);
+    try {
+      const r = await fetch("/api/geodata/load-local", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: localProvider,
+          countryCode: localCountry || undefined,
+          batchSize: localBatchSize,
+          maxRetries: localMaxRetries,
+        }),
+      });
+      const json = (await r.json()) as GeoLocalLoadResponse & { error?: string };
+      if (!r.ok && !json.status) {
+        setLocalResult({
+          status: "FAILED",
+          success: false,
+          load_session_id: "n/a",
+          provider: localProvider,
+          countryCode: localCountry || undefined,
+          expected_count: 0,
+          found_count: 0,
+          missing_count: 0,
+          attempts: 0,
+          upserted: 0,
+          retry_logs: [],
+          errors: [json.error ?? "HTTP " + r.status],
+          duplicate_source_keys: 0,
+          duration_ms: 0,
+        });
+      } else {
+        setLocalResult(json);
+      }
+      void loadStats();
+    } catch (err) {
+      setLocalResult({
+        status: "FAILED",
+        success: false,
+        load_session_id: "n/a",
+        provider: localProvider,
+        countryCode: localCountry || undefined,
+        expected_count: 0,
+        found_count: 0,
+        missing_count: 0,
+        attempts: 0,
+        upserted: 0,
+        retry_logs: [],
+        errors: [err instanceof Error ? err.message : "Local ETL failed"],
+        duplicate_source_keys: 0,
+        duration_ms: 0,
+      });
+    }
+    setLocalLoading(false);
+  }, [localProvider, localCountry, localBatchSize, localMaxRetries, loadStats]);
+
   /* ---------- Derived ---------- */
   const countryName = (c: string) => SUPPORTED_COUNTRIES.find((x) => x.code === c)?.name ?? c;
   const doneJobs = fetchJobs.filter((j) => j.status === "done");
@@ -206,6 +273,7 @@ export function GeoDataLab() {
               { v: stats.geoapify_count, l: "Geoapify POI", c: "#22c55e" },
               { v: stats.tomtom_count, l: "TomTom POI", c: "#3b82f6" },
               { v: stats.unified_count, l: "Egyesített POI", c: "#f59e0b" },
+              { v: stats.local_count ?? 0, l: "Local POI", c: "#a78bfa" },
             ].map((s) => (
               <div key={s.l} style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
                 <div style={{ fontSize: 28, fontWeight: 700, color: s.c }}>{s.v.toLocaleString()}</div>
@@ -219,9 +287,9 @@ export function GeoDataLab() {
       {/* ---- Steps ---- */}
       <div className="card">
         <div className="chips">
-          {(["select", "download", "review", "merge"] as Step[]).map((s, i) => (
+          {(["select", "download", "review", "merge", "local"] as Step[]).map((s, i) => (
             <button key={s} className={step === s ? "" : "secondary"} onClick={() => setStep(s)} style={{ padding: "8px 20px", width: "auto" }}>
-              {`${i + 1}. ${["Kiválasztás", "Letöltés", "Ellenőrzés", "Egyesítés"][i]}`}
+              {i + 1}. {["Kiválasztás", "Letöltés", "Ellenőrzés", "Egyesítés", "Local ETL"][i]}
             </button>
           ))}
         </div>
@@ -377,6 +445,7 @@ export function GeoDataLab() {
               <option value="geoapify_pois">Geoapify POI-k</option>
               <option value="tomtom_pois">TomTom POI-k</option>
               <option value="unified_pois">Egyesített POI-k</option>
+              <option value="local_pois">Local POI-k</option>
             </select>
           </label>
           <label>Ország
@@ -410,7 +479,7 @@ export function GeoDataLab() {
                   <th style={{ padding: "6px 8px", textAlign: "left" }}>Kategóriák</th>
                   <th style={{ padding: "6px 8px", textAlign: "right" }}>Lat</th>
                   <th style={{ padding: "6px 8px", textAlign: "right" }}>Lon</th>
-                  {reviewTable === "unified_pois" && <th style={{ padding: "6px 8px", textAlign: "left" }}>Forrás</th>}
+                  {(reviewTable === "unified_pois" || reviewTable === "local_pois") && <th style={{ padding: "6px 8px", textAlign: "left" }}>Forrás</th>}
                 </tr></thead>
                 <tbody>
                   {reviewData.rows.map((row) => (
@@ -421,7 +490,7 @@ export function GeoDataLab() {
                       <td style={{ padding: "6px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(row.categories ?? []).slice(0, 3).join(", ")}</td>
                       <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat?.toFixed(4)}</td>
                       <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon?.toFixed(4)}</td>
-                      {reviewTable === "unified_pois" && <td style={{ padding: "6px 8px" }}>
+                      {(reviewTable === "unified_pois" || reviewTable === "local_pois") && <td style={{ padding: "6px 8px" }}>
                         <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: row.source_provider === "geoapify" ? "rgba(34,197,94,0.2)" : "rgba(59,130,246,0.2)", color: row.source_provider === "geoapify" ? "#22c55e" : "#3b82f6" }}>
                           {row.source_provider}
                         </span>
@@ -479,6 +548,100 @@ export function GeoDataLab() {
         </div>
       )}
 
+      {/* ================================================================ */}
+      {/*  STEP 5                                                          */}
+      {/* ================================================================ */}
+      {step === "local" && (
+        <div className="card">
+          <h3 style={{ margin: "0 0 12px" }}>Self-healing ETL – unified_pois → local_pois</h3>
+          <p className="muted" style={{ fontSize: 13, margin: "0 0 12px", lineHeight: 1.6 }}>
+            Ez a lépés minden futáskor új <code>load_session_id</code>-t generál, UPSERT-tel ír a <code>local_pois</code> táblába, majd a <code>last_load_session</code> alapján visszaellenőrzi a darabszámot. Zöld státusz csak akkor jelenik meg, ha a forrás és cél darabszám pontosan egyezik.
+          </p>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <span
+              aria-label="ETL státuszlámpa"
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: "50%",
+                flexShrink: 0,
+                background: localLoading ? "#f59e0b" : localResult?.success ? "#22c55e" : localResult ? "#ef4444" : "#64748b",
+                boxShadow: localLoading ? "0 0 16px rgba(245,158,11,0.8)" : localResult?.success ? "0 0 16px rgba(34,197,94,0.8)" : localResult ? "0 0 16px rgba(239,68,68,0.8)" : "none",
+                animation: localLoading ? "pulse 1s infinite" : undefined,
+              }}
+            />
+            <strong>
+              {localLoading ? "Fut / narancs" : localResult?.success ? "SUCCESS / zöld" : localResult ? "FAILED / piros" : "Még nem futott"}
+            </strong>
+          </div>
+
+          <div className="row two">
+            <label>Forrás
+              <select value={localProvider} onChange={(e) => setLocalProvider(e.target.value as GeoLocalLoadProvider)}>
+                <option value="all">Geoapify + TomTom</option>
+                <option value="geoapify">Csak Geoapify</option>
+                <option value="tomtom">Csak TomTom</option>
+              </select>
+            </label>
+            <label>Ország (üres = mind)
+              <select value={localCountry} onChange={(e) => setLocalCountry(e.target.value)}>
+                <option value="">Összes ország</option>
+                {SUPPORTED_COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+              </select>
+            </label>
+            <label>Chunk méret
+              <input
+                type="number"
+                min={100}
+                max={1000}
+                step={100}
+                value={localBatchSize}
+                onChange={(e) => setLocalBatchSize(Number(e.target.value))}
+              />
+            </label>
+            <label>Maximum retry
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={localMaxRetries}
+                onChange={(e) => setLocalMaxRetries(Number(e.target.value))}
+              />
+            </label>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <button onClick={() => void runLocalLoad()} disabled={localLoading}>
+              {localLoading ? "ETL fut, ellenőrzés folyamatban…" : "Self-healing ETL indítása"}
+            </button>
+          </div>
+
+          {localResult && (
+            <div style={{ marginTop: 12, padding: 12, background: "#1a2440", borderRadius: 10 }}>
+              <div className="chips">
+                <span className="chip" style={{ background: localResult.success ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)", color: localResult.success ? "#22c55e" : "#ef4444" }}>{localResult.status}</span>
+                <span className="chip">Expected: {localResult.expected_count.toLocaleString()}</span>
+                <span className="chip">Found: {localResult.found_count.toLocaleString()}</span>
+                <span className="chip">Missing: {localResult.missing_count.toLocaleString()}</span>
+                <span className="chip">Attempts: {localResult.attempts}</span>
+                <span className="chip">Session: {localResult.load_session_id}</span>
+              </div>
+
+              {localResult.errors.length > 0 && (
+                <div style={{ marginTop: 10, color: "#ef4444", fontSize: 12, lineHeight: 1.5 }}>
+                  {localResult.errors.map((e, i) => <div key={i}>• {e}</div>)}
+                </div>
+              )}
+
+              <div className="pre" style={{ marginTop: 10, maxHeight: 260 }}>
+                {localResult.retry_logs.length > 0 ? localResult.retry_logs.join("\n") : "Nincs részletes log."}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ---- Info ---- */}
       {step === "select" && (
         <div className="card">
@@ -487,7 +650,8 @@ export function GeoDataLab() {
             <strong>1.</strong> Válaszd ki a szolgáltatót, országo(ka)t, és a kategóriákat (csoportonként vagy egyenként).<br />
             <strong>2.</strong> A rendszer az API-ról az <em>összes</em> POI-t letölti — nincs mesterséges limit.<br />
             <strong>3.</strong> Ellenőrizd a letöltött címeket a harmadik fülön szűréssel/lapozással.<br />
-            <strong>4.</strong> Egyesítsd a közös címtáblába — a rendszer nem duplikál, csak hiányzó mezőket pótol.<br /><br />
+            <strong>4.</strong> Egyesítsd a közös címtáblába — a rendszer nem duplikál, csak hiányzó mezőket pótol.<br />
+            <strong>5.</strong> Futtasd a self-healing ETL-t a <code>local_pois</code> táblába; zöld siker csak validált darabszám-egyezés után jár.<br /><br />
             <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>
           </div>
         </div>

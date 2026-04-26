@@ -46,3 +46,12 @@
 - Supporting both OpenAI and Anthropic from a single API route via env-var detection means the merge feature works with whichever provider the deployer already has credentials for.
 - Sequential file-by-file merge (not batch) is intentional: it allows per-file progress UI, stop/resume control, and avoids overloading a single LLM context window.
 - Binary file detection by extension whitelist is more reliable than content-sniffing in a browser ZIP extraction context.
+
+## 2026-04-26 — GeoData self-healing ETL lessons
+- High-volume provider-to-local loads must not be marked successful based only on completed API calls or successful insert batches.
+- Every ETL run needs a dedicated session identifier stored on each affected target row, otherwise old target rows can hide current-run data loss.
+- Existing POIs must be updated during UPSERT, not skipped, because their `last_load_session` has to move to the current run for validation.
+- A green UI state is only valid after source expected count equals the target count filtered by the current `last_load_session`.
+- Retry logic should be delta-based: identify missing provider/source keys and retry only those rows, with a hard maximum retry guard.
+- Duplicate source keys make exact source-row-to-target-row parity impossible under `(provider_id, source_provider)` uniqueness and must fail loudly.
+- Schema support belongs in an idempotent migration: add `last_load_session`, the provider/source unique index, and verification indexes without deleting existing data.

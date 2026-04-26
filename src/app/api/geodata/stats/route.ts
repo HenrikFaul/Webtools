@@ -2,31 +2,46 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { GeoStatsResponse } from "@/types/geodata";
 
+interface CountryRow { country_code: string | null; }
+
+function countByCountry(rows: CountryRow[] | null): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const r of rows ?? []) {
+    const key = r.country_code ?? "unknown";
+    map[key] = (map[key] ?? 0) + 1;
+  }
+  return map;
+}
+
+async function safeCountryRows(
+  sb: ReturnType<typeof getSupabaseAdmin>,
+  table: string,
+): Promise<CountryRow[]> {
+  const { data, error } = await sb.from(table).select("country_code", { count: "exact", head: false });
+  if (error) return [];
+  return (data ?? []) as CountryRow[];
+}
+
 export async function GET() {
   try {
     const sb = getSupabaseAdmin();
 
-    const [geoRes, tomRes, uniRes] = await Promise.all([
-      sb.from("geoapify_pois").select("country_code", { count: "exact", head: false }),
-      sb.from("tomtom_pois").select("country_code", { count: "exact", head: false }),
-      sb.from("unified_pois").select("country_code", { count: "exact", head: false }),
+    const [geoRows, tomRows, uniRows, localRows] = await Promise.all([
+      safeCountryRows(sb, "geoapify_pois"),
+      safeCountryRows(sb, "tomtom_pois"),
+      safeCountryRows(sb, "unified_pois"),
+      safeCountryRows(sb, "local_pois"),
     ]);
 
-    function countByCountry(rows: { country_code: string }[] | null): Record<string, number> {
-      const map: Record<string, number> = {};
-      for (const r of rows ?? []) {
-        map[r.country_code] = (map[r.country_code] ?? 0) + 1;
-      }
-      return map;
-    }
-
     const stats: GeoStatsResponse = {
-      geoapify_count: geoRes.data?.length ?? 0,
-      tomtom_count: tomRes.data?.length ?? 0,
-      unified_count: uniRes.data?.length ?? 0,
-      geoapify_by_country: countByCountry(geoRes.data as { country_code: string }[] | null),
-      tomtom_by_country: countByCountry(tomRes.data as { country_code: string }[] | null),
-      unified_by_country: countByCountry(uniRes.data as { country_code: string }[] | null),
+      geoapify_count: geoRows.length,
+      tomtom_count: tomRows.length,
+      unified_count: uniRows.length,
+      local_count: localRows.length,
+      geoapify_by_country: countByCountry(geoRows),
+      tomtom_by_country: countByCountry(tomRows),
+      unified_by_country: countByCountry(uniRows),
+      local_by_country: countByCountry(localRows),
     };
 
     return NextResponse.json(stats);

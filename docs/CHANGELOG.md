@@ -59,3 +59,14 @@
 - Added Hungarian-language UI copy and onboarding guide.
 - Added types in `src/types/branchMerger.ts` with full type coverage.
 - Updated tool registry to include Branch Merger as a ready module.
+
+## 2026-04-26 (GeoData self-healing local ETL)
+- Added robust `unified_pois` → `local_pois` ETL endpoint at `/api/geodata/load-local`.
+- Added per-run UUID `load_session_id` handling through the target-side `last_load_session` field.
+- Implemented batch UPSERT with `ON CONFLICT (provider_id, source_provider)` semantics through Supabase upsert.
+- Added post-load verification loop comparing source expected count to target `last_load_session` count.
+- Added missing-record delta retry logic with a maximum retry guard and explicit retry logs.
+- Added failure-only behavior for mismatched counts: the endpoint returns `SUCCESS` only when expected and found counts match exactly.
+- Added local ETL UI step with orange/running, green/success, red/failure status lamp and detailed retry logs.
+- Added `local_pois` review support and local count in the GeoData stats panel.
+- Added idempotent Supabase SQL migration for `local_pois` session tracking, unique conflict key, and verification indexes.
