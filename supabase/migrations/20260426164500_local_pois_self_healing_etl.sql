@@ -1,5 +1,5 @@
--- v4.1.4 POI ETL schema hardening + database-side provider merge.
--- Safe to run more than once in Supabase SQL Editor.
+-- v4.1.5 POI ETL schema hardening + database-side provider merge.
+-- Safe to run more than once in Supabase SQL Editor. v4.1.5 drops incompatible target defaults before type changes.
 -- Goal: make unified_pois and local_pois use the same canonical datatypes,
 -- then move raw provider data with explicit casts instead of fragile JS row loops.
 
@@ -444,6 +444,39 @@ alter table public.local_pois add column if not exists last_loaded_at timestampt
 alter table public.local_pois add column if not exists created_at timestamptz not null default now();
 alter table public.local_pois add column if not exists updated_at timestamptz not null default now();
 
+/* Drop audit views before changing target table column types. */
+drop view if exists public.poi_etl_schema_audit;
+drop view if exists public.poi_table_column_types;
+
+/*
+  PostgreSQL will not change a column type if its existing DEFAULT cannot be
+  automatically cast to the new datatype. This is exactly what broke v4.1.4
+  for categories: an older text default was still attached while the column was
+  being converted to jsonb. Drop only defaults on columns whose type is about
+  to be normalized; re-apply the canonical defaults below after conversion.
+*/
+do $$
+declare
+  r record;
+begin
+  for r in
+    select table_name, column_name
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name in ('unified_pois', 'local_pois')
+      and column_name in (
+        'name_international','categories','lat','lon','opening_hours','diet','capacity',
+        'outdoor_seating','indoor_seating','internet_access','air_conditioning',
+        'takeaway','delivery','payment_options','osm_id','raw_data','source_fetched_at',
+        'unified_at','source_unified_at','last_merge_session','last_merged_at',
+        'last_load_session','last_loaded_at','created_at','updated_at'
+      )
+      and column_default is not null
+  loop
+    execute format('alter table public.%I alter column %I drop default', r.table_name, r.column_name);
+  end loop;
+end $$;
+
 /* Normalize target column types. All text columns become unlimited text, so there is no hidden length cap. */
 alter table public.unified_pois alter column source_provider type text using source_provider::text;
 alter table public.unified_pois alter column source_id type text using source_id::text;
@@ -580,6 +613,8 @@ alter table public.local_pois alter column diet set default '{}'::jsonb;
 alter table public.local_pois alter column payment_options set default '{}'::jsonb;
 alter table public.local_pois alter column created_at set default now();
 alter table public.local_pois alter column updated_at set default now();
+alter table public.unified_pois alter column id set default gen_random_uuid();
+alter table public.local_pois alter column id set default gen_random_uuid();
 
 create index if not exists unified_pois_source_provider_source_id_idx on public.unified_pois (source_provider, source_id);
 create index if not exists unified_pois_last_merge_session_idx on public.unified_pois (last_merge_session);
@@ -607,22 +642,63 @@ create index if not exists local_pois_source_provider_country_idx on public.loca
 
 drop view if exists public.poi_etl_schema_audit;
 create view public.poi_etl_schema_audit as
-with expected(column_name, expected_data_type) as (
+with expected(column_name, unified_column, local_column, expected_unified_type, expected_local_type) as (
   values
-    ('source_provider','text'), ('source_id','text'), ('provider_id','text'), ('name','text'),
-    ('name_international','jsonb'), ('categories','jsonb'), ('country','text'), ('country_code','text'),
-    ('country_code_iso3','text'), ('iso3166_2','text'), ('state_region','text'), ('city','text'),
-    ('district','text'), ('suburb','text'), ('postal_code','text'), ('street','text'), ('street_number','text'),
-    ('formatted_address','text'), ('address_line1','text'), ('address_line2','text'), ('lat','double precision'),
-    ('lon','double precision'), ('phone','text'), ('email','text'), ('website','text'), ('facebook','text'),
-    ('instagram','text'), ('tripadvisor','text'), ('opening_hours','jsonb'), ('operator','text'), ('brand','text'),
-    ('branch','text'), ('cuisine','text'), ('diet','jsonb'), ('capacity','integer'), ('reservation','text'),
-    ('wheelchair','text'), ('outdoor_seating','boolean'), ('indoor_seating','boolean'), ('internet_access','boolean'),
-    ('air_conditioning','boolean'), ('smoking','text'), ('toilets','text'), ('takeaway','boolean'), ('delivery','boolean'),
-    ('payment_options','jsonb'), ('classification_code','text'), ('osm_id','bigint'), ('building_type','text'),
-    ('raw_data','jsonb'), ('source_fetched_at','timestamp with time zone'), ('source_unified_at','timestamp with time zone'),
-    ('unified_at','timestamp with time zone'), ('last_merge_session','uuid'), ('last_load_session','uuid'),
-    ('last_merged_at','timestamp with time zone'), ('last_loaded_at','timestamp with time zone')
+    ('source_key', 'source_id', 'provider_id', 'text', 'text'),
+    ('source_provider', 'source_provider', 'source_provider', 'text', 'text'),
+    ('name', 'name', 'name', 'text', 'text'),
+    ('name_international', 'name_international', 'name_international', 'jsonb', 'jsonb'),
+    ('categories', 'categories', 'categories', 'jsonb', 'jsonb'),
+    ('country', 'country', 'country', 'text', 'text'),
+    ('country_code', 'country_code', 'country_code', 'text', 'text'),
+    ('country_code_iso3', 'country_code_iso3', 'country_code_iso3', 'text', 'text'),
+    ('iso3166_2', 'iso3166_2', 'iso3166_2', 'text', 'text'),
+    ('state_region', 'state_region', 'state_region', 'text', 'text'),
+    ('city', 'city', 'city', 'text', 'text'),
+    ('district', 'district', 'district', 'text', 'text'),
+    ('suburb', 'suburb', 'suburb', 'text', 'text'),
+    ('postal_code', 'postal_code', 'postal_code', 'text', 'text'),
+    ('street', 'street', 'street', 'text', 'text'),
+    ('street_number', 'street_number', 'street_number', 'text', 'text'),
+    ('formatted_address', 'formatted_address', 'formatted_address', 'text', 'text'),
+    ('address_line1', 'address_line1', 'address_line1', 'text', 'text'),
+    ('address_line2', 'address_line2', 'address_line2', 'text', 'text'),
+    ('lat', 'lat', 'lat', 'double precision', 'double precision'),
+    ('lon', 'lon', 'lon', 'double precision', 'double precision'),
+    ('phone', 'phone', 'phone', 'text', 'text'),
+    ('email', 'email', 'email', 'text', 'text'),
+    ('website', 'website', 'website', 'text', 'text'),
+    ('facebook', 'facebook', 'facebook', 'text', 'text'),
+    ('instagram', 'instagram', 'instagram', 'text', 'text'),
+    ('tripadvisor', 'tripadvisor', 'tripadvisor', 'text', 'text'),
+    ('opening_hours', 'opening_hours', 'opening_hours', 'jsonb', 'jsonb'),
+    ('operator', 'operator', 'operator', 'text', 'text'),
+    ('brand', 'brand', 'brand', 'text', 'text'),
+    ('branch', 'branch', 'branch', 'text', 'text'),
+    ('cuisine', 'cuisine', 'cuisine', 'text', 'text'),
+    ('diet', 'diet', 'diet', 'jsonb', 'jsonb'),
+    ('capacity', 'capacity', 'capacity', 'integer', 'integer'),
+    ('reservation', 'reservation', 'reservation', 'text', 'text'),
+    ('wheelchair', 'wheelchair', 'wheelchair', 'text', 'text'),
+    ('outdoor_seating', 'outdoor_seating', 'outdoor_seating', 'boolean', 'boolean'),
+    ('indoor_seating', 'indoor_seating', 'indoor_seating', 'boolean', 'boolean'),
+    ('internet_access', 'internet_access', 'internet_access', 'boolean', 'boolean'),
+    ('air_conditioning', 'air_conditioning', 'air_conditioning', 'boolean', 'boolean'),
+    ('smoking', 'smoking', 'smoking', 'text', 'text'),
+    ('toilets', 'toilets', 'toilets', 'text', 'text'),
+    ('takeaway', 'takeaway', 'takeaway', 'boolean', 'boolean'),
+    ('delivery', 'delivery', 'delivery', 'boolean', 'boolean'),
+    ('payment_options', 'payment_options', 'payment_options', 'jsonb', 'jsonb'),
+    ('classification_code', 'classification_code', 'classification_code', 'text', 'text'),
+    ('osm_id', 'osm_id', 'osm_id', 'bigint', 'bigint'),
+    ('building_type', 'building_type', 'building_type', 'text', 'text'),
+    ('raw_data', 'raw_data', 'raw_data', 'jsonb', 'jsonb'),
+    ('source_fetched_at', 'source_fetched_at', 'source_fetched_at', 'timestamp with time zone', 'timestamp with time zone'),
+    ('unified_timestamp', 'unified_at', 'source_unified_at', 'timestamp with time zone', 'timestamp with time zone'),
+    ('session_id', 'last_merge_session', 'last_load_session', 'uuid', 'uuid'),
+    ('session_timestamp', 'last_merged_at', 'last_loaded_at', 'timestamp with time zone', 'timestamp with time zone'),
+    ('created_at', 'created_at', 'created_at', 'timestamp with time zone', 'timestamp with time zone'),
+    ('updated_at', 'updated_at', 'updated_at', 'timestamp with time zone', 'timestamp with time zone')
 ), cols as (
   select table_name, column_name, data_type, character_maximum_length
   from information_schema.columns
@@ -630,16 +706,21 @@ with expected(column_name, expected_data_type) as (
 )
 select
   e.column_name,
-  e.expected_data_type,
-  max(c.data_type) filter (where c.table_name = 'unified_pois') as unified_type,
-  max(c.character_maximum_length) filter (where c.table_name = 'unified_pois') as unified_length,
-  max(c.data_type) filter (where c.table_name = 'local_pois') as local_type,
-  max(c.character_maximum_length) filter (where c.table_name = 'local_pois') as local_length,
-  coalesce(max(c.data_type) filter (where c.table_name = 'unified_pois'), '') in (e.expected_data_type, case when e.expected_data_type = 'jsonb' then 'jsonb' else e.expected_data_type end) as unified_ok,
-  coalesce(max(c.data_type) filter (where c.table_name = 'local_pois'), '') in (e.expected_data_type, case when e.expected_data_type = 'jsonb' then 'jsonb' else e.expected_data_type end) as local_ok
+  e.unified_column,
+  e.local_column,
+  e.expected_unified_type,
+  e.expected_local_type,
+  u.data_type as unified_type,
+  u.character_maximum_length as unified_length,
+  l.data_type as local_type,
+  l.character_maximum_length as local_length,
+  coalesce(u.data_type, '') = e.expected_unified_type as unified_ok,
+  coalesce(l.data_type, '') = e.expected_local_type as local_ok,
+  coalesce(u.data_type, '') = coalesce(l.data_type, '') as same_datatype,
+  coalesce(u.character_maximum_length, -1) = coalesce(l.character_maximum_length, -1) as same_length
 from expected e
-left join cols c on c.column_name = e.column_name
-group by e.column_name, e.expected_data_type
+left join cols u on u.table_name = 'unified_pois' and u.column_name = e.unified_column
+left join cols l on l.table_name = 'local_pois' and l.column_name = e.local_column
 order by e.column_name;
 
 drop view if exists public.poi_table_column_types;

@@ -576,15 +576,15 @@ export function GeoDataLab() {
             <div style={{ marginTop: 12, padding: 12, background: "#1a2440", borderRadius: 10 }}>
               <div className="chips">
                 <span className="chip" style={{ background: mergeResult.success ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)", color: mergeResult.success ? "#22c55e" : "#ef4444" }}>{mergeResult.status}</span>
-                <span className="chip">Raw source: {mergeResult.raw_source_count.toLocaleString()}</span>
-                <span className="chip">Expected distinct: {mergeResult.expected_count.toLocaleString()}</span>
-                <span className="chip">Found: {mergeResult.found_count.toLocaleString()}</span>
-                <span className="chip">Missing: {mergeResult.missing_count.toLocaleString()}</span>
+                <span className="chip">Raw source: {Number(mergeResult.raw_source_count ?? 0).toLocaleString()}</span>
+                <span className="chip">Expected distinct: {Number(mergeResult.expected_count ?? 0).toLocaleString()}</span>
+                <span className="chip">Found: {Number(mergeResult.found_count ?? 0).toLocaleString()}</span>
+                <span className="chip">Missing: {Number(mergeResult.missing_count ?? 0).toLocaleString()}</span>
                 <span className="chip">Session: {mergeResult.merge_session_id}</span>
-                <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>+{mergeResult.inserted.toLocaleString()} beszúrva</span>
-                <span className="chip" style={{ background: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>↻ {mergeResult.updated.toLocaleString()} frissítve</span>
-                <span className="chip">⊘ {mergeResult.skipped.toLocaleString()} kihagyva</span>
-                {mergeResult.duplicate_source_keys > 0 && <span className="chip" style={{ background: "rgba(245,158,11,0.2)", color: "#f59e0b" }}>Duplikált source key: {mergeResult.duplicate_source_keys.toLocaleString()}</span>}
+                <span className="chip" style={{ background: "rgba(34,197,94,0.2)", color: "#22c55e" }}>+{Number(mergeResult.inserted ?? 0).toLocaleString()} beszúrva</span>
+                <span className="chip" style={{ background: "rgba(59,130,246,0.2)", color: "#3b82f6" }}>↻ {Number(mergeResult.updated ?? 0).toLocaleString()} frissítve</span>
+                <span className="chip">⊘ {Number(mergeResult.skipped ?? 0).toLocaleString()} kihagyva</span>
+                {Number(mergeResult.duplicate_source_keys ?? 0) > 0 && <span className="chip" style={{ background: "rgba(245,158,11,0.2)", color: "#f59e0b" }}>Duplikált source key: {Number(mergeResult.duplicate_source_keys ?? 0).toLocaleString()}</span>}
               </div>
               {(mergeResult.errors ?? []).length > 0 && (
                 <div style={{ marginTop: 8, color: "#ef4444", fontSize: 12 }}>
@@ -673,9 +673,9 @@ export function GeoDataLab() {
             <div style={{ marginTop: 12, padding: 12, background: "#1a2440", borderRadius: 10 }}>
               <div className="chips">
                 <span className="chip" style={{ background: localResult.success ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)", color: localResult.success ? "#22c55e" : "#ef4444" }}>{localResult.status}</span>
-                <span className="chip">Expected: {localResult.expected_count.toLocaleString()}</span>
-                <span className="chip">Found: {localResult.found_count.toLocaleString()}</span>
-                <span className="chip">Missing: {localResult.missing_count.toLocaleString()}</span>
+                <span className="chip">Expected: {Number(localResult.expected_count ?? 0).toLocaleString()}</span>
+                <span className="chip">Found: {Number(localResult.found_count ?? 0).toLocaleString()}</span>
+                <span className="chip">Missing: {Number(localResult.missing_count ?? 0).toLocaleString()}</span>
                 <span className="chip">Attempts: {localResult.attempts}</span>
                 <span className="chip">Session: {localResult.load_session_id}</span>
               </div>

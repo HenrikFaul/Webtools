@@ -91,3 +91,13 @@ from public.poi_table_column_types
 where table_name in ('geoapify_pois','tomtom_pois','unified_pois','local_pois')
 order by table_name, ordinal_position;
 ```
+
+## v4.1.5 - POI schema migration default-cast recovery
+
+- Fixed Supabase migration failure `default for column "categories" cannot be cast automatically to type jsonb`.
+- Root cause: legacy `unified_pois` / `local_pois` columns could have old text defaults while v4.1.4 tried to change those columns to canonical jsonb/boolean/numeric/timestamp types.
+- Added a pre-normalization default-drop block for only the columns whose types are changed; canonical defaults are re-applied after conversion.
+- Dropped POI audit views before column type normalization to avoid dependency failures on repeated migration runs.
+- Re-applied `id default gen_random_uuid()` explicitly after normalization as a safety guard.
+- Outcome: `public.poi_etl_schema_audit` and `public.poi_table_column_types` are created only after the schema conversion succeeds, so the audit query is meaningful and repeatable.
+- Corrected `poi_etl_schema_audit` so it compares equivalent target fields only: `unified_pois.source_id` ↔ `local_pois.provider_id`, `unified_at` ↔ `source_unified_at`, `last_merge_session` ↔ `last_load_session`, and `last_merged_at` ↔ `last_loaded_at`.

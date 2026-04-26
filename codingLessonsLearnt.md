@@ -72,3 +72,26 @@ Rule going forward:
 - Do not rely on mixed-type `COALESCE`. Cast explicitly before `COALESCE`.
 - Any API response consumed by React must be normalized so arrays like `errors`, `retry_logs`, or `merge_logs` always exist before rendering.
 - For 50k+ POI rows, use database-side set-based `UPDATE` + `INSERT` logic or chunked bulk processing; never use row-by-row JS loops as the primary merge mechanism.
+
+## v4.1.5 lesson - Drop incompatible defaults before ALTER COLUMN TYPE
+
+When converting existing PostgreSQL columns from legacy text/varchar to jsonb/boolean/numeric/timestamp types, the column default must be handled separately. PostgreSQL validates/casts the existing DEFAULT expression during `ALTER COLUMN TYPE`; even if the row data can be converted with `USING`, the migration fails if the old default cannot be automatically cast.
+
+Concrete failure observed:
+
+```text
+ERROR: default for column "categories" cannot be cast automatically to type jsonb
+```
+
+Required pattern for future migrations:
+
+1. Add missing columns first.
+2. Drop audit/dependent views before type changes.
+3. Drop defaults on columns whose type will change.
+4. Run `ALTER TABLE ... ALTER COLUMN ... TYPE ... USING ...` with explicit safe casts.
+5. Re-apply canonical defaults after the type conversion.
+6. Create audit views only after the schema conversion has succeeded.
+
+Do not rely on `USING column::text::jsonb` alone; it does not fix incompatible existing DEFAULT expressions.
+
+Also: schema audit views must compare equivalent columns, not blindly require both target tables to contain every column name. `unified_pois.source_id` and `local_pois.provider_id` are equivalent business keys but not the same physical column name, so the audit must use a mapping table, not a naive same-column join.
