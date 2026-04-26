@@ -34,5 +34,12 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
     description: "Intelligens kód-összefésülő: ZIP feltöltés, diff analízis, LLM-alapú regressziómentes merge, és letölthető eredmény.",
     href: "/tools/branch-merger",
     status: "ready"
+  },
+  {
+    slug: "geodata",
+    title: "GeoData – POI Címadatbázis",
+    description: "Turisztikai POI-k beszerzése Geoapify és TomTom API-ról, ország+kategória szűréssel, ellenőrzéssel, és egyesített címtáblába töltéssel.",
+    href: "/tools/geodata",
+    status: "ready"
   }
 ];
