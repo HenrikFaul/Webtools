@@ -208,7 +208,6 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
   let inserted = 0;
   let skipped = 0;
   let totalFetched = 0;
-  let awsWriteChunkNo = 0;
   let offset = 0;
   let totalResults = Infinity;
 
@@ -359,7 +358,7 @@ function buildAwsPlacesV2ReverseGeocodeUrl(region: string, apiKey: string): stri
   return url.toString();
 }
 
-async function fetchAwsLocation(countryCode: string, category: string): Promise<GeoFetchResponse> {
+async function fetchAwsLocation(countryCode: string, category: string, options?: { maxRuntimeMs?: number; maxApiCalls?: number; continuationToken?: string; }): Promise<GeoFetchResponse> {
   const apiKey = process.env.AWS_LOCATION_API_KEY;
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
 
@@ -377,6 +376,18 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   let skipped = 0;
   let totalFetched = 0;
   let awsWriteChunkNo = 0;
+  let apiCalls = 0;
+  let completed = true;
+  let continuationToken: string | null = null;
+  const startedAt = Date.now();
+  const maxRuntimeMs = options?.maxRuntimeMs ?? Number(process.env.AWS_FETCH_MAX_RUNTIME_MS ?? "45000");
+  const maxApiCalls = options?.maxApiCalls ?? Number(process.env.AWS_FETCH_MAX_API_CALLS ?? "350");
+
+  const shouldStop = () => {
+    if (Date.now() - startedAt >= maxRuntimeMs) return true;
+    if (apiCalls >= maxApiCalls) return true;
+    return false;
+  };
 
   const mapRows = (items: AwsPlaceResultItem[]) =>
     items
@@ -449,11 +460,37 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
     if (!Number.isFinite(step) || step <= 0) throw new Error("AWS_ADDRESS_GRID_STEP_DEGREES must be a positive number.");
     const bufferedRows: ReturnType<typeof mapRows> = [];
     const seenExternalIds = new Set<string>();
+    let resumeLon: number | null = null;
+    let resumeLat: number | null = null;
+    if (options?.continuationToken) {
+      try {
+        const parsed = JSON.parse(options.continuationToken) as { mode?: string; lon?: number; lat?: number };
+        if (parsed.mode === "address" && Number.isFinite(parsed.lon) && Number.isFinite(parsed.lat)) {
+          resumeLon = parsed.lon ?? null;
+          resumeLat = parsed.lat ?? null;
+        }
+      } catch {
+        errors.push("Invalid continuationToken format for AWS address mode.");
+      }
+    }
+    let shouldResume = resumeLon != null && resumeLat != null;
 
     for (let lon = lon1; lon <= lon2; lon += step) {
       for (let lat = lat1; lat <= lat2; lat += step) {
+        if (shouldResume) {
+          const lonMatch = Math.abs(Number(lon.toFixed(6)) - Number((resumeLon ?? lon).toFixed(6))) < 0.000001;
+          const latMatch = Math.abs(Number(lat.toFixed(6)) - Number((resumeLat ?? lat).toFixed(6))) < 0.000001;
+          if (!lonMatch || !latMatch) continue;
+          shouldResume = false;
+        }
         let res: Response;
         try {
+          if (shouldStop()) {
+            completed = false;
+            continuationToken = JSON.stringify({ mode: "address", lon: Number(lon.toFixed(6)), lat: Number(lat.toFixed(6)) });
+            break;
+          }
+          apiCalls += 1;
           res = await fetch(reverseGeocodeUrl, {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },
@@ -488,10 +525,11 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
         }
         await new Promise((r) => setTimeout(r, 80));
       }
+      if (!completed) break;
     }
     if (bufferedRows.length > 0) await upsertRowsChunked(bufferedRows);
   } else {
-    let nextToken: string | undefined;
+    let nextToken: string | undefined = options?.continuationToken || undefined;
 
     do {
       const body: Record<string, unknown> = {
@@ -507,6 +545,12 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
 
       let res: Response;
       try {
+        if (shouldStop()) {
+          completed = false;
+          continuationToken = nextToken ?? null;
+          break;
+        }
+        apiCalls += 1;
         res = await fetch(baseUrl, {
           method: "POST",
           headers: {
@@ -536,9 +580,11 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
       await upsertRowsChunked(filteredRows);
       await new Promise((r) => setTimeout(r, 120));
     } while (nextToken);
+
+    if (nextToken && !completed) continuationToken = nextToken;
   }
 
-  return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors };
+  return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors, completed, continuationToken, meta: { apiCalls, runtimeMs: Date.now() - startedAt } };
 }
 /* ------------------------------------------------------------------ */
 export async function POST(req: Request) {
@@ -553,7 +599,11 @@ export async function POST(req: Request) {
       : payload.provider === "tomtom"
         ? await fetchTomTom(payload.countryCode, payload.category)
         : payload.provider === "aws"
-          ? await fetchAwsLocation(payload.countryCode, payload.category)
+          ? await fetchAwsLocation(payload.countryCode, payload.category, {
+            maxRuntimeMs: payload.maxRuntimeMs,
+            maxApiCalls: payload.maxApiCalls,
+            continuationToken: payload.continuationToken,
+          })
           : null;
 
     if (!result) return NextResponse.json({ error: `Unknown provider: ${payload.provider}` }, { status: 400 });

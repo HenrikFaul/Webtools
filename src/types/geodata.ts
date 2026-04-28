@@ -199,8 +199,29 @@ export const TOMTOM_CATEGORY_GROUPS: CategoryGroup[] = [
 
 export type GeoProvider = "geoapify" | "tomtom" | "aws";
 
-export interface GeoFetchRequest { provider: GeoProvider; countryCode: string; category: string; }
-export interface GeoFetchResponse { provider: GeoProvider; countryCode: string; category: string; inserted: number; skipped: number; total: number; errors: string[]; }
+export interface GeoFetchRequest {
+  provider: GeoProvider;
+  countryCode: string;
+  category: string;
+  maxRuntimeMs?: number;
+  maxApiCalls?: number;
+  continuationToken?: string;
+}
+export interface GeoFetchResponse {
+  provider: GeoProvider;
+  countryCode: string;
+  category: string;
+  inserted: number;
+  skipped: number;
+  total: number;
+  errors: string[];
+  completed?: boolean;
+  continuationToken?: string | null;
+  meta?: {
+    apiCalls: number;
+    runtimeMs: number;
+  };
+}
 export interface GeoStatsResponse {
   geoapify_count: number;
   tomtom_count: number;
