@@ -84,6 +84,9 @@ export const GEOAPIFY_CATEGORY_GROUPS: CategoryGroup[] = [
 ];
 
 export const AWS_LOCATION_CATEGORY_GROUPS: CategoryGroup[] = [
+  { groupKey: "address_db", groupLabel: "Címadatbázis", items: [
+    { key: "__address_db__", label: "Címadatbázis lekérés" },
+  ]},
   { groupKey: "accommodation", groupLabel: "Szállás", items: [
     { key: "Hotel", label: "Hotel" },
     { key: "Hostel", label: "Hostel" },
