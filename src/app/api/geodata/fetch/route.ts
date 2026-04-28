@@ -284,14 +284,12 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 }
 
 /* ------------------------------------------------------------------ */
-/*  AWS Location Service – standalone Geo Places V2 API               */
+/*  AWS Location Service – Places V2 API key flow (NO SigV4)          */
 /* ------------------------------------------------------------------ */
 
-// Correct AWS SDK v3 subdomain for the standalone geo-places service.
-// geo-places.geo.{region}  ≠  places.geo.{region}  ≠  geo.{region}
-// geo-places.geo.{region}.amazonaws.com is available in all Location
-// Service regions, including eu-north-1.
-// MaxResults maximum for searchText is 20.
+// API key mode must use the public Places domain + `?key=...` query.
+// Do NOT attach Authorization/X-Amz-* headers in this mode.
+// MaxResults maximum for search-text is 20.
 const AWS_PAGE = 20;
 
 interface AwsPlaceAddress {
@@ -335,12 +333,18 @@ interface AwsSearchTextResponse {
   NextToken?: string;
 }
 
+function buildAwsPlacesV2SearchTextUrl(region: string, apiKey: string): string {
+  const url = new URL(`https://places.geo.${region}.amazonaws.com/v2/search-text`);
+  url.searchParams.set("key", apiKey);
+  return url.toString();
+}
+
 async function fetchAwsLocation(countryCode: string, category: string): Promise<GeoFetchResponse> {
   const apiKey = process.env.AWS_LOCATION_API_KEY;
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
 
   const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
-  const baseUrl = `https://geo-places.geo.${region}.amazonaws.com/v2/searchText`;
+  const baseUrl = buildAwsPlacesV2SearchTextUrl(region, apiKey);
 
   const sb = getSupabaseAdmin();
   const errors: string[] = [];
@@ -364,7 +368,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-amz-api-key": apiKey,
+          accept: "application/json",
         },
         body: JSON.stringify(body),
         cache: "no-store",

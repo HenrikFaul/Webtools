@@ -27,3 +27,11 @@
 7. For live URL analysis, use the **Runtime crawl URL** field, then compare runtime-observed vs code-inferred sections.
 8. Use the Audit Workspace tabs to switch between Live Web Auditor, Source Code Reverse-Engineer, Manual/HAR/OpenAPI import, and One-Click demos.
 9. For local code analysis, prefer reviewed source uploads and chunked parsing; verify inferred endpoints before relying on them for replay.
+
+## GeoData Lab – AWS Places V2 auth notes
+1. **API key mode uses `No Auth` only** (do not use SigV4 at the same time).
+2. Use endpoint form: `https://places.geo.<region>.amazonaws.com/v2/<operation>?key=<AWS_LOCATION_API_KEY>`.
+3. Do not send `Authorization` / `X-Amz-*` headers in API-key mode.
+4. API key mode and IAM/SigV4 mode are separate flows:
+   - API key flow: `?key=...`, no signed headers.
+   - IAM flow: SigV4-signed request, no API key query.
