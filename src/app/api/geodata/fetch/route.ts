@@ -287,6 +287,13 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 /*  AWS Location Service Places API – paginate via NextToken           */
 /* ------------------------------------------------------------------ */
 
+// ISO 3166-1 alpha-2 → alpha-3 mapping for the supported countries.
+// geo.{region}.amazonaws.com/places/v0/text requires exactly 3-letter codes.
+const AWS_ALPHA3: Record<string, string> = {
+  HU: "HUN", AT: "AUT", SK: "SVK", RO: "ROU", HR: "HRV",
+  RS: "SRB", SI: "SVN", CZ: "CZE", UA: "UKR", PL: "POL",
+};
+
 interface AwsPlaceAddress {
   Label?: string;
   Country?: { Code2?: string; Code3?: string; Name?: string };
@@ -328,14 +335,20 @@ interface AwsSearchTextResponse {
   NextToken?: string;
 }
 
-const AWS_PAGE = 20;
+// The new V2 endpoint (places.geo.*.amazonaws.com/v2/searchText) is only available
+// in a subset of regions. The original endpoint (geo.*.amazonaws.com/places/v0/text)
+// is universally available and accepts x-amz-api-key auth. MaxResults up to 50.
+const AWS_PAGE = 50;
 
 async function fetchAwsLocation(countryCode: string, category: string): Promise<GeoFetchResponse> {
   const apiKey = process.env.AWS_LOCATION_API_KEY;
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
 
   const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
-  const baseUrl = `https://places.geo.${region}.amazonaws.com/v2/searchText`;
+  // Uses the universally-available standalone Places endpoint (no Place Index required)
+  const baseUrl = `https://geo.${region}.amazonaws.com/places/v0/text`;
+  // Filter requires ISO 3166-1 alpha-3 (3-letter) country codes
+  const iso3 = AWS_ALPHA3[countryCode.toUpperCase()] ?? countryCode.toUpperCase();
 
   const sb = getSupabaseAdmin();
   const errors: string[] = [];
@@ -347,7 +360,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   do {
     const body: Record<string, unknown> = {
       QueryText: category,
-      Filter: { IncludeCountries: [countryCode.toUpperCase()] },
+      Filter: { IncludeCountries: [iso3] },
       MaxResults: AWS_PAGE,
       Language: "hu",
     };
