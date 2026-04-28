@@ -208,6 +208,7 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
   let inserted = 0;
   let skipped = 0;
   let totalFetched = 0;
+  let awsWriteChunkNo = 0;
   let offset = 0;
   let totalResults = Infinity;
 
@@ -291,7 +292,7 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 // Do NOT attach Authorization/X-Amz-* headers in this mode.
 // MaxResults maximum for search-text is 20.
 const AWS_PAGE = 20;
-const AWS_UPSERT_CHUNK_SIZE = 500;
+const AWS_UPSERT_CHUNK_SIZE = 150;
 const AWS_ADDRESS_DATABASE_CATEGORY = "__address_db__";
 
 interface AwsPlaceAddress {
@@ -375,6 +376,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   let inserted = 0;
   let skipped = 0;
   let totalFetched = 0;
+  let awsWriteChunkNo = 0;
 
   const mapRows = (items: AwsPlaceResultItem[]) =>
     items
@@ -420,15 +422,20 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
     if (rows.length === 0) return;
     for (let i = 0; i < rows.length; i += AWS_UPSERT_CHUNK_SIZE) {
       const chunk = rows.slice(i, i + AWS_UPSERT_CHUNK_SIZE);
+      awsWriteChunkNo += 1;
+      console.info(`[AWS][${countryCode.toUpperCase()}][${category}] Chunk ${awsWriteChunkNo}: ${chunk.length} address rows prepared. Writing to database...`);
       const { error, count } = await sb
         .from("aws_pois")
         .upsert(chunk, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
       if (error) {
-        errors.push(`DB: ${error.message}`);
+        const msg = `DB chunk ${awsWriteChunkNo} failed: ${error.message}`;
+        errors.push(msg);
+        console.error(`[AWS][${countryCode.toUpperCase()}][${category}] ${msg}`);
         continue;
       }
       inserted += count ?? chunk.length;
       skipped += chunk.length - (count ?? chunk.length);
+      console.info(`[AWS][${countryCode.toUpperCase()}][${category}] Chunk ${awsWriteChunkNo}: database write finished (inserted/updated: ${count ?? chunk.length}).`);
     }
   };
 
