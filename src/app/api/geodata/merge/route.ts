@@ -14,7 +14,7 @@ type Sb = ReturnType<typeof getSupabaseAdmin>;
 type Row = Record<string, unknown>;
 
 function isProvider(v: unknown): v is GeoProvider {
-  return v === "geoapify" || v === "tomtom";
+  return v === "geoapify" || v === "tomtom" || v === "aws";
 }
 
 function asStr(v: unknown): string | null {
@@ -110,6 +110,69 @@ async function deleteExisting(
 }
 
 // ---- Field transformers ----
+
+function transformAws(row: Row, sessionId: string, now: string): Row {
+  const cats = Array.isArray(row.categories) ? (row.categories as Row[]) : [];
+  const catLabels = cats.map((c) => asStr(c.name ?? c.localizedName)).filter(Boolean);
+
+  return {
+    source_provider: "aws",
+    source_id: asStr(row.external_id),
+    name: asStr(row.name),
+    name_international: {},
+    categories: catLabels.length > 0 ? catLabels : toJsonb(row.categories, []),
+    country: asStr(row.country),
+    country_code: asStr(row.country_code)?.toUpperCase() ?? null,
+    country_code_iso3: asStr(row.country_code_iso3),
+    iso3166_2: null,
+    state_region: asStr(row.state_region),
+    city: asStr(row.city),
+    district: asStr(row.district),
+    suburb: null,
+    postal_code: asStr(row.postal_code),
+    street: asStr(row.street),
+    street_number: asStr(row.street_number),
+    formatted_address: asStr(row.formatted_address),
+    address_line1: asStr(row.name),
+    address_line2: asStr(row.formatted_address),
+    lat: asNum(row.lat),
+    lon: asNum(row.lon),
+    phone: asStr(row.phone),
+    email: asStr(row.email),
+    website: asStr(row.website),
+    facebook: null,
+    instagram: null,
+    tripadvisor: null,
+    opening_hours: toJsonb(row.opening_hours, null),
+    operator: null,
+    brand: null,
+    branch: null,
+    cuisine: null,
+    diet: {},
+    capacity: null,
+    reservation: null,
+    wheelchair: null,
+    outdoor_seating: null,
+    indoor_seating: null,
+    internet_access: null,
+    air_conditioning: null,
+    smoking: null,
+    toilets: null,
+    takeaway: null,
+    delivery: null,
+    payment_options: {},
+    classification_code: asStr(row.place_type),
+    osm_id: null,
+    building_type: null,
+    raw_data: toJsonb(row.raw_data, {}),
+    source_fetched_at: asStr(row.fetched_at),
+    unified_at: now,
+    last_merge_session: sessionId,
+    last_merged_at: now,
+    created_at: now,
+    updated_at: now,
+  };
+}
 
 function transformGeoapify(row: Row, sessionId: string, now: string): Row {
   return {
@@ -257,7 +320,7 @@ async function streamAndInsert(
   countryCode: string | undefined,
   logs: string[],
 ): Promise<StreamResult> {
-  const sourceTable = provider === "geoapify" ? "geoapify_pois" : "tomtom_pois";
+  const sourceTable = provider === "geoapify" ? "geoapify_pois" : provider === "aws" ? "aws_pois" : "tomtom_pois";
   const seen = new Set<string>();
   let from = 0;
   let inserted = 0;
@@ -306,7 +369,9 @@ async function streamAndInsert(
       const unified =
         provider === "geoapify"
           ? transformGeoapify(row, sessionId, now)
-          : transformTomtom(row, sessionId, now);
+          : provider === "aws"
+            ? transformAws(row, sessionId, now)
+            : transformTomtom(row, sessionId, now);
 
       if (!unified.source_id) continue;
       pending.push(unified);

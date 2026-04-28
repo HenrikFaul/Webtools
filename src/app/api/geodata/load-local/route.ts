@@ -140,11 +140,11 @@ function clampInt(value: number | undefined, fallback: number, min: number, max:
 }
 
 function providersFor(provider: GeoLocalLoadProvider): GeoProvider[] {
-  return provider === "all" ? ["geoapify", "tomtom"] : [provider];
+  return provider === "all" ? ["geoapify", "tomtom", "aws"] : [provider];
 }
 
 function isProvider(value: unknown): value is GeoLocalLoadProvider {
-  return value === "geoapify" || value === "tomtom" || value === "all" || value == null;
+  return value === "geoapify" || value === "tomtom" || value === "aws" || value === "all" || value == null;
 }
 
 function normalizeProvider(value: GeoLocalLoadProvider | undefined): GeoLocalLoadProvider {
@@ -172,7 +172,7 @@ function stableJsonFallback(row: UnifiedPoiRow): Record<string, unknown> {
 }
 
 function rowProvider(row: UnifiedPoiRow): GeoProvider | null {
-  if (row.source_provider === "geoapify" || row.source_provider === "tomtom") return row.source_provider;
+  if (row.source_provider === "geoapify" || row.source_provider === "tomtom" || row.source_provider === "aws") return row.source_provider;
   return null;
 }
 
@@ -382,7 +382,7 @@ async function fetchTargetSessionKeys(
     if (!data || data.length === 0) break;
 
     for (const row of data as Array<{ provider_id: string | number | null; source_provider: string | null }>) {
-      const provider = row.source_provider === "geoapify" || row.source_provider === "tomtom" ? row.source_provider : null;
+      const provider = row.source_provider === "geoapify" || row.source_provider === "tomtom" || row.source_provider === "aws" ? row.source_provider : null;
       const providerId = asString(row.provider_id);
       if (provider && providerId) keys.add(keyFor(provider, providerId));
     }
@@ -444,7 +444,7 @@ export async function POST(req: Request) {
   try {
     const payload = (await req.json()) as GeoLocalLoadRequest;
     if (!isProvider(payload.provider)) {
-      return NextResponse.json({ error: "provider must be geoapify, tomtom, or all" }, { status: 400 });
+      return NextResponse.json({ error: "provider must be geoapify, tomtom, aws, or all" }, { status: 400 });
     }
 
     provider = normalizeProvider(payload.provider);

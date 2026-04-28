@@ -26,9 +26,10 @@ export async function GET() {
   try {
     const sb = getSupabaseAdmin();
 
-    const [geoRows, tomRows, uniRows, localRows] = await Promise.all([
+    const [geoRows, tomRows, awsRows, uniRows, localRows] = await Promise.all([
       safeCountryRows(sb, "geoapify_pois"),
       safeCountryRows(sb, "tomtom_pois"),
+      safeCountryRows(sb, "aws_pois"),
       safeCountryRows(sb, "unified_pois"),
       safeCountryRows(sb, "local_pois"),
     ]);
@@ -36,10 +37,12 @@ export async function GET() {
     const stats: GeoStatsResponse = {
       geoapify_count: geoRows.length,
       tomtom_count: tomRows.length,
+      aws_count: awsRows.length,
       unified_count: uniRows.length,
       local_count: localRows.length,
       geoapify_by_country: countByCountry(geoRows),
       tomtom_by_country: countByCountry(tomRows),
+      aws_by_country: countByCountry(awsRows),
       unified_by_country: countByCountry(uniRows),
       local_by_country: countByCountry(localRows),
     };
