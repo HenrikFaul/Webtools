@@ -351,6 +351,12 @@ function buildAwsPlacesV2SearchTextUrl(region: string, apiKey: string): string {
   return url.toString();
 }
 
+function buildAwsPlacesV2ReverseGeocodeUrl(region: string, apiKey: string): string {
+  const url = new URL(`https://places.geo.${region}.amazonaws.com/v2/reverse-geocode`);
+  url.searchParams.set("key", apiKey);
+  return url.toString();
+}
+
 async function fetchAwsLocation(countryCode: string, category: string): Promise<GeoFetchResponse> {
   const apiKey = process.env.AWS_LOCATION_API_KEY;
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
@@ -358,15 +364,17 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
   const country = SUPPORTED_COUNTRIES.find((c) => c.code === countryCode.toUpperCase());
   if (!country) throw new Error(`Unsupported country: ${countryCode}`);
+
   const [lon1, lat1, lon2, lat2] = country.bbox;
   const baseUrl = buildAwsPlacesV2SearchTextUrl(region, apiKey);
-  const reverseGeocodeUrl = `https://places.geo.${region}.amazonaws.com/v2/reverse-geocode?key=${encodeURIComponent(apiKey)}`;
+  const reverseGeocodeUrl = buildAwsPlacesV2ReverseGeocodeUrl(region, apiKey);
 
   const sb = getSupabaseAdmin();
   const errors: string[] = [];
   let inserted = 0;
   let skipped = 0;
   let totalFetched = 0;
+
   const mapRows = (items: AwsPlaceResultItem[]) =>
     items
       .filter((item) => item.PlaceId && item.Position)
@@ -419,6 +427,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
 
   if (category === AWS_ADDRESS_DATABASE_CATEGORY) {
     const step = Number(process.env.AWS_ADDRESS_GRID_STEP_DEGREES ?? "0.35");
+
     for (let lon = lon1; lon <= lon2; lon += step) {
       for (let lat = lat1; lat <= lat2; lat += step) {
         let res: Response;
@@ -426,17 +435,22 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
           res = await fetch(reverseGeocodeUrl, {
             method: "POST",
             headers: { "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({ QueryPosition: [Number(lon.toFixed(6)), Number(lat.toFixed(6))], Language: "hu" }),
+            body: JSON.stringify({
+              QueryPosition: [Number(lon.toFixed(6)), Number(lat.toFixed(6))],
+              Language: "hu",
+            }),
             cache: "no-store",
           });
         } catch (networkErr) {
           errors.push(`AWS network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`);
           continue;
         }
+
         if (!res.ok) {
           errors.push(`AWS ${res.status}: ${(await res.text()).slice(0, 300)}`);
           continue;
         }
+
         const data = (await res.json()) as AwsReverseGeocodeResponse;
         const items = data.ResultItems ?? [];
         totalFetched += items.length;
@@ -446,6 +460,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
     }
   } else {
     let nextToken: string | undefined;
+
     do {
       const body: Record<string, unknown> = {
         QueryText: category,
@@ -492,7 +507,6 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
 
   return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors };
 }
-
 /* ------------------------------------------------------------------ */
 export async function POST(req: Request) {
   try {
