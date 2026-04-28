@@ -314,6 +314,7 @@ export function GeoDataLab() {
             {[
               { v: stats.geoapify_count, l: "Geoapify POI", c: "#22c55e" },
               { v: stats.tomtom_count, l: "TomTom POI", c: "#3b82f6" },
+              { v: stats.aws_count ?? 0, l: "AWS POI", c: "#f97316" },
               { v: stats.unified_count, l: "Egyesített POI", c: "#f59e0b" },
               { v: stats.local_count ?? 0, l: "Local POI", c: "#a78bfa" },
             ].map((s) => (
@@ -345,9 +346,9 @@ export function GeoDataLab() {
         <div className="card">
           <h3 style={{ margin: "0 0 10px" }}>Szolgáltató</h3>
           <div className="chips">
-            {(["geoapify", "tomtom"] as GeoProvider[]).map((p) => (
+            {(["geoapify", "tomtom", "aws"] as GeoProvider[]).map((p) => (
               <button key={p} className={selectedProvider === p ? "" : "secondary"} onClick={() => { setSelectedProvider(p); setSelectedCategories(new Set()); }} style={{ width: "auto", padding: "8px 24px", textTransform: "capitalize" }}>
-                {p === "geoapify" ? "Geoapify" : "TomTom"}
+                {p === "geoapify" ? "Geoapify" : p === "tomtom" ? "TomTom" : "AWS Location"}
               </button>
             ))}
           </div>
@@ -486,6 +487,7 @@ export function GeoDataLab() {
             <select value={reviewTable} onChange={(e) => { setReviewTable(e.target.value); setReviewData(null); }}>
               <option value="geoapify_pois">Geoapify POI-k</option>
               <option value="tomtom_pois">TomTom POI-k</option>
+              <option value="aws_pois">AWS POI-k</option>
               <option value="unified_pois">Egyesített POI-k</option>
               <option value="local_pois">Local POI-k</option>
             </select>
@@ -533,7 +535,7 @@ export function GeoDataLab() {
                       <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat?.toFixed(4)}</td>
                       <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon?.toFixed(4)}</td>
                       {(reviewTable === "unified_pois" || reviewTable === "local_pois") && <td style={{ padding: "6px 8px" }}>
-                        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: row.source_provider === "geoapify" ? "rgba(34,197,94,0.2)" : "rgba(59,130,246,0.2)", color: row.source_provider === "geoapify" ? "#22c55e" : "#3b82f6" }}>
+                        <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: row.source_provider === "geoapify" ? "rgba(34,197,94,0.2)" : row.source_provider === "aws" ? "rgba(249,115,22,0.2)" : "rgba(59,130,246,0.2)", color: row.source_provider === "geoapify" ? "#22c55e" : row.source_provider === "aws" ? "#f97316" : "#3b82f6" }}>
                           {row.source_provider}
                         </span>
                       </td>}
@@ -560,6 +562,7 @@ export function GeoDataLab() {
               <select value={mergeProvider} onChange={(e) => setMergeProvider(e.target.value as GeoProvider)}>
                 <option value="geoapify">Geoapify</option>
                 <option value="tomtom">TomTom</option>
+                <option value="aws">AWS Location</option>
               </select>
             </label>
             <label>Ország (üres = mind)
@@ -631,9 +634,10 @@ export function GeoDataLab() {
           <div className="row two">
             <label>Forrás
               <select value={localProvider} onChange={(e) => setLocalProvider(e.target.value as GeoLocalLoadProvider)}>
-                <option value="all">Geoapify + TomTom</option>
+                <option value="all">Geoapify + TomTom + AWS</option>
                 <option value="geoapify">Csak Geoapify</option>
                 <option value="tomtom">Csak TomTom</option>
+                <option value="aws">Csak AWS Location</option>
               </select>
             </label>
             <label>Ország (üres = mind)
@@ -704,7 +708,7 @@ export function GeoDataLab() {
             <strong>3.</strong> Ellenőrizd a letöltött címeket a harmadik fülön szűréssel/lapozással.<br />
             <strong>4.</strong> Egyesítsd a közös címtáblába — a rendszer nem duplikál, csak hiányzó mezőket pótol.<br />
             <strong>5.</strong> Futtasd a self-healing ETL-t a <code>local_pois</code> táblába; zöld siker csak validált darabszám-egyezés után jár.<br /><br />
-            <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>
+            <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>AWS_LOCATION_API_KEY</code>, <code>AWS_LOCATION_REGION</code> (alapértelmezett: eu-central-1), <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>
           </div>
         </div>
       )}

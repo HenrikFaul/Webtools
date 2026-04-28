@@ -284,6 +284,145 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 }
 
 /* ------------------------------------------------------------------ */
+/*  AWS Location Service Places API – paginate via NextToken           */
+/* ------------------------------------------------------------------ */
+
+interface AwsPlaceAddress {
+  Label?: string;
+  Country?: { Code2?: string; Code3?: string; Name?: string };
+  Region?: { Code?: string; Name?: string };
+  SubRegion?: { Code?: string; Name?: string };
+  Locality?: string;
+  District?: string;
+  PostalCode?: string;
+  Street?: string;
+  AddressNumber?: string;
+  Building?: string;
+}
+
+interface AwsPlaceCategory {
+  Id?: string;
+  Name?: string;
+  LocalizedName?: string;
+}
+
+interface AwsPlaceContact {
+  Phones?: { Label?: string; Value?: string }[];
+  Websites?: { Label?: string; Value?: string }[];
+  Emails?: { Label?: string; Value?: string }[];
+}
+
+interface AwsPlaceResultItem {
+  PlaceId?: string;
+  PlaceType?: string;
+  Title?: string;
+  Address?: AwsPlaceAddress;
+  Position?: [number, number]; // [lon, lat]
+  Categories?: AwsPlaceCategory[];
+  Contacts?: AwsPlaceContact;
+  OpeningHours?: unknown[];
+}
+
+interface AwsSearchTextResponse {
+  ResultItems?: AwsPlaceResultItem[];
+  NextToken?: string;
+}
+
+const AWS_PAGE = 20;
+
+async function fetchAwsLocation(countryCode: string, category: string): Promise<GeoFetchResponse> {
+  const apiKey = process.env.AWS_LOCATION_API_KEY;
+  if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
+
+  const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
+  const baseUrl = `https://places.geo.${region}.amazonaws.com/v2/searchText?key=${apiKey}`;
+
+  const sb = getSupabaseAdmin();
+  const errors: string[] = [];
+  let inserted = 0;
+  let skipped = 0;
+  let totalFetched = 0;
+  let nextToken: string | undefined;
+
+  do {
+    const body: Record<string, unknown> = {
+      QueryText: category,
+      Filter: { IncludeCountries: [countryCode.toUpperCase()] },
+      MaxResults: AWS_PAGE,
+      Language: "hu",
+    };
+    if (nextToken) body.NextToken = nextToken;
+
+    const res = await fetch(baseUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      errors.push(`AWS ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      break;
+    }
+
+    const data = (await res.json()) as AwsSearchTextResponse;
+    const items = data.ResultItems ?? [];
+    nextToken = data.NextToken ?? undefined;
+
+    if (items.length === 0) break;
+    totalFetched += items.length;
+
+    const rows = items
+      .filter((item) => item.PlaceId && item.Position)
+      .map((item) => {
+        const addr = item.Address ?? {};
+        const contacts = item.Contacts ?? {};
+        const phone = contacts.Phones?.[0]?.Value ?? null;
+        const email = contacts.Emails?.[0]?.Value ?? null;
+        const website = contacts.Websites?.[0]?.Value ?? null;
+        const [lon, lat] = item.Position!;
+        return {
+          external_id: item.PlaceId!,
+          name: item.Title ?? null,
+          country_code: addr.Country?.Code2?.toUpperCase() ?? countryCode.toUpperCase(),
+          country: addr.Country?.Name ?? null,
+          country_code_iso3: addr.Country?.Code3 ?? null,
+          state_region: addr.Region?.Name ?? null,
+          city: addr.Locality ?? null,
+          district: addr.District ?? null,
+          postal_code: addr.PostalCode ?? null,
+          street: addr.Street ?? null,
+          street_number: addr.AddressNumber ?? null,
+          formatted_address: addr.Label ?? null,
+          lat,
+          lon,
+          phone,
+          email,
+          website,
+          categories: item.Categories ?? [],
+          place_type: item.PlaceType ?? null,
+          opening_hours: item.OpeningHours ?? null,
+          raw_data: item,
+          fetch_category: category,
+        };
+      });
+
+    if (rows.length > 0) {
+      const { error, count } = await sb
+        .from("aws_pois")
+        .upsert(rows, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
+      if (error) errors.push(`DB: ${error.message}`);
+      else inserted += count ?? rows.length;
+      skipped += rows.length - (count ?? rows.length);
+    }
+
+    await new Promise((r) => setTimeout(r, 150));
+  } while (nextToken);
+
+  return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors };
+}
+
+/* ------------------------------------------------------------------ */
 export async function POST(req: Request) {
   try {
     const payload = (await req.json()) as GeoFetchRequest;
@@ -295,7 +434,9 @@ export async function POST(req: Request) {
       ? await fetchGeoapify(payload.countryCode, payload.category)
       : payload.provider === "tomtom"
         ? await fetchTomTom(payload.countryCode, payload.category)
-        : null;
+        : payload.provider === "aws"
+          ? await fetchAwsLocation(payload.countryCode, payload.category)
+          : null;
 
     if (!result) return NextResponse.json({ error: `Unknown provider: ${payload.provider}` }, { status: 400 });
     return NextResponse.json(result);

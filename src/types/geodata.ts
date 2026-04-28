@@ -83,6 +83,64 @@ export const GEOAPIFY_CATEGORY_GROUPS: CategoryGroup[] = [
   ]},
 ];
 
+export const AWS_LOCATION_CATEGORY_GROUPS: CategoryGroup[] = [
+  { groupKey: "accommodation", groupLabel: "Szállás", items: [
+    { key: "Hotel", label: "Hotel" },
+    { key: "Hostel", label: "Hostel" },
+    { key: "Bed & Breakfast", label: "Panzió/Vendégház" },
+    { key: "Holiday Rental", label: "Nyaralóház" },
+    { key: "Campsite", label: "Kemping" },
+    { key: "Cabin or Bungalow", label: "Faház" },
+    { key: "Resort", label: "Resort" },
+  ]},
+  { groupKey: "catering", groupLabel: "Vendéglátás", items: [
+    { key: "Restaurant", label: "Étterem" },
+    { key: "Cafe", label: "Kávézó" },
+    { key: "Bar or Pub", label: "Bár/Pub" },
+    { key: "Fast Food", label: "Gyorsétterem" },
+    { key: "Winery", label: "Borászat" },
+    { key: "Brewery", label: "Sörfőzde" },
+  ]},
+  { groupKey: "tourism", groupLabel: "Turizmus", items: [
+    { key: "Museum", label: "Múzeum" },
+    { key: "Castle", label: "Kastély/Vár" },
+    { key: "Monument", label: "Emlékmű" },
+    { key: "Historic Site", label: "Történelmi hely" },
+    { key: "Art Gallery", label: "Galéria" },
+    { key: "Tourist Attraction", label: "Látnivaló" },
+    { key: "Aquarium", label: "Akvárium" },
+    { key: "Zoo", label: "Állatkert" },
+  ]},
+  { groupKey: "entertainment", groupLabel: "Szórakozás", items: [
+    { key: "Cinema", label: "Mozi" },
+    { key: "Theater", label: "Színház" },
+    { key: "Casino", label: "Kaszinó" },
+    { key: "Amusement Park", label: "Vidámpark" },
+    { key: "Nightclub", label: "Éjszakai klub" },
+  ]},
+  { groupKey: "leisure", groupLabel: "Szabadidő", items: [
+    { key: "Park", label: "Park" },
+    { key: "Spa", label: "Fürdő/Spa" },
+    { key: "Beach", label: "Strand" },
+    { key: "Playground", label: "Játszótér" },
+    { key: "Thermal Bath", label: "Termálfürdő" },
+  ]},
+  { groupKey: "sport", groupLabel: "Sport", items: [
+    { key: "Swimming Pool", label: "Uszoda" },
+    { key: "Stadium", label: "Stadion" },
+    { key: "Golf Course", label: "Golfpálya" },
+    { key: "Sports Center", label: "Sportközpont" },
+    { key: "Tennis Court", label: "Teniszpálya" },
+  ]},
+  { groupKey: "natural", groupLabel: "Természet", items: [
+    { key: "Lake", label: "Tó" },
+    { key: "Forest", label: "Erdő" },
+    { key: "Cave", label: "Barlang" },
+    { key: "Spring", label: "Forrás" },
+    { key: "Viewpoint", label: "Kilátó" },
+  ]},
+];
+
 export const TOMTOM_CATEGORY_GROUPS: CategoryGroup[] = [
   { groupKey: "accommodation", groupLabel: "Szállás", items: [
     { key: "hotel/motel", label: "Hotel/Motel" },
@@ -136,17 +194,19 @@ export const TOMTOM_CATEGORY_GROUPS: CategoryGroup[] = [
   ]},
 ];
 
-export type GeoProvider = "geoapify" | "tomtom";
+export type GeoProvider = "geoapify" | "tomtom" | "aws";
 
 export interface GeoFetchRequest { provider: GeoProvider; countryCode: string; category: string; }
 export interface GeoFetchResponse { provider: GeoProvider; countryCode: string; category: string; inserted: number; skipped: number; total: number; errors: string[]; }
 export interface GeoStatsResponse {
   geoapify_count: number;
   tomtom_count: number;
+  aws_count: number;
   unified_count: number;
   local_count: number;
   geoapify_by_country: Record<string, number>;
   tomtom_by_country: Record<string, number>;
+  aws_by_country: Record<string, number>;
   unified_by_country: Record<string, number>;
   local_by_country: Record<string, number>;
 }
@@ -194,7 +254,9 @@ export interface GeoLocalLoadResponse {
 }
 
 export function getCategoryGroups(provider: GeoProvider): CategoryGroup[] {
-  return provider === "geoapify" ? GEOAPIFY_CATEGORY_GROUPS : TOMTOM_CATEGORY_GROUPS;
+  if (provider === "geoapify") return GEOAPIFY_CATEGORY_GROUPS;
+  if (provider === "aws") return AWS_LOCATION_CATEGORY_GROUPS;
+  return TOMTOM_CATEGORY_GROUPS;
 }
 export function getAllCategoryKeys(groups: CategoryGroup[]): string[] {
   return groups.flatMap((g) => g.items.map((i) => i.key));
