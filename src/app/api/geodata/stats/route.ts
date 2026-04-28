@@ -1,57 +1,64 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { GeoStatsResponse } from "@/types/geodata";
 
-interface CountryRow { country_code: string | null; }
+const ALLOWED_TABLES = [
+  "geoapify_pois",
+  "tomtom_pois",
+  "aws_pois",
+  "unified_pois",
+  "local_pois",
+] as const;
+type StatsTable = (typeof ALLOWED_TABLES)[number];
 
-function countByCountry(rows: CountryRow[] | null): Record<string, number> {
-  const map: Record<string, number> = {};
-  for (const r of rows ?? []) {
-    const key = r.country_code ?? "unknown";
-    map[key] = (map[key] ?? 0) + 1;
-  }
-  return map;
-}
-
-async function safeCountryRows(
+async function countTable(
   sb: ReturnType<typeof getSupabaseAdmin>,
-  table: string,
-): Promise<CountryRow[]> {
-  const { data, error } = await sb.from(table).select("country_code", { count: "exact", head: false });
-  if (error) return [];
-  return (data ?? []) as CountryRow[];
+  table: StatsTable,
+  country?: string,
+): Promise<number> {
+  let q = sb.from(table).select("*", { count: "exact", head: true });
+  if (country) q = q.eq("country_code", country);
+  const { count, error } = await q;
+  return error ? 0 : (count ?? 0);
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const country = url.searchParams.get("country") || undefined;
+    const table = url.searchParams.get("table") || undefined;
+
     const sb = getSupabaseAdmin();
 
-    const [geoRows, tomRows, awsRows, uniRows, localRows] = await Promise.all([
-      safeCountryRows(sb, "geoapify_pois"),
-      safeCountryRows(sb, "tomtom_pois"),
-      safeCountryRows(sb, "aws_pois"),
-      safeCountryRows(sb, "unified_pois"),
-      safeCountryRows(sb, "local_pois"),
-    ]);
+    // Single-table mode: called by individual badge refresh
+    if (table) {
+      if (!(ALLOWED_TABLES as readonly string[]).includes(table)) {
+        return NextResponse.json({ error: "Invalid table" }, { status: 400 });
+      }
+      const count = await countTable(sb, table as StatsTable, country);
+      return NextResponse.json({ table, count, country: country ?? null });
+    }
 
-    const stats: GeoStatsResponse = {
-      geoapify_count: geoRows.length,
-      tomtom_count: tomRows.length,
-      aws_count: awsRows.length,
-      unified_count: uniRows.length,
-      local_count: localRows.length,
-      geoapify_by_country: countByCountry(geoRows),
-      tomtom_by_country: countByCountry(tomRows),
-      aws_by_country: countByCountry(awsRows),
-      unified_by_country: countByCountry(uniRows),
-      local_by_country: countByCountry(localRows),
-    };
+    // All-tables mode (backward compat — also used by load-after-operation refresh)
+    const counts = await Promise.all(ALLOWED_TABLES.map((t) => countTable(sb, t, country)));
+    const [geo, tom, aws, uni, local] = counts;
 
-    return NextResponse.json(stats);
+    return NextResponse.json({
+      geoapify_count: geo,
+      tomtom_count: tom,
+      aws_count: aws,
+      unified_count: uni,
+      local_count: local,
+      country: country ?? null,
+      geoapify_by_country: {},
+      tomtom_by_country: {},
+      aws_by_country: {},
+      unified_by_country: {},
+      local_by_country: {},
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Stats fetch failed" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

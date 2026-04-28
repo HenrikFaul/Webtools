@@ -13,10 +13,26 @@ import type {
   GeoLocalLoadResponse,
   GeoMergeResponse,
   GeoProvider,
-  GeoStatsResponse,
 } from "@/types/geodata";
 
 type Step = "select" | "download" | "review" | "merge" | "local";
+
+/* ---- Per-badge stats ---- */
+interface BadgeStat { count: number | null; loading: boolean; updatedAt: string | null; }
+type BadgeTable = "geoapify_pois" | "tomtom_pois" | "aws_pois" | "unified_pois" | "local_pois";
+const BADGE_DEFS: { table: BadgeTable; label: string; color: string }[] = [
+  { table: "geoapify_pois", label: "Geoapify POI", color: "#22c55e" },
+  { table: "tomtom_pois", label: "TomTom POI", color: "#3b82f6" },
+  { table: "aws_pois", label: "AWS POI", color: "#f97316" },
+  { table: "unified_pois", label: "Egyesített POI", color: "#f59e0b" },
+  { table: "local_pois", label: "Local POI", color: "#a78bfa" },
+];
+const STATS_COUNTRY_KEY = "geodata_stats_country";
+function initBadges(): Record<BadgeTable, BadgeStat> {
+  return Object.fromEntries(
+    BADGE_DEFS.map((d) => [d.table, { count: null, loading: false, updatedAt: null }]),
+  ) as Record<BadgeTable, BadgeStat>;
+}
 
 interface FetchJob {
   provider: GeoProvider;
@@ -50,8 +66,10 @@ interface ReviewData { rows: ReviewRow[]; total: number; page: number; totalPage
 
 export function GeoDataLab() {
   const [step, setStep] = useState<Step>("select");
-  const [stats, setStats] = useState<GeoStatsResponse | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
+  const [badgeStats, setBadgeStats] = useState<Record<BadgeTable, BadgeStat>>(initBadges);
+  const [statsCountry, setStatsCountry] = useState<string>(() =>
+    typeof window !== "undefined" ? (localStorage.getItem(STATS_COUNTRY_KEY) ?? "") : ""
+  );
 
   const [selectedProvider, setSelectedProvider] = useState<GeoProvider>("geoapify");
   const [selectedCountries, setSelectedCountries] = useState<Set<string>>(new Set(["HU"]));
@@ -84,12 +102,40 @@ export function GeoDataLab() {
   const allKeys = useMemo(() => getAllCategoryKeys(groups), [groups]);
 
   /* ---------- Stats ---------- */
-  const loadStats = useCallback(async () => {
-    setStatsLoading(true);
-    try { const r = await fetch("/api/geodata/stats"); setStats(await r.json() as GeoStatsResponse); } catch { /* */ }
-    setStatsLoading(false);
+  const fetchOneBadge = useCallback(async (table: BadgeTable, country: string) => {
+    setBadgeStats((prev) => ({ ...prev, [table]: { ...prev[table], loading: true } }));
+    try {
+      const params = new URLSearchParams({ table });
+      if (country) params.set("country", country);
+      const r = await fetch(`/api/geodata/stats?${params}`);
+      const json = (await r.json()) as { count: number };
+      setBadgeStats((prev) => ({
+        ...prev,
+        [table]: { count: json.count ?? 0, loading: false, updatedAt: new Date().toISOString() },
+      }));
+    } catch {
+      setBadgeStats((prev) => ({ ...prev, [table]: { ...prev[table], loading: false } }));
+    }
   }, []);
-  useEffect(() => { void loadStats(); }, [loadStats]);
+
+  const loadAllBadges = useCallback((country: string) => {
+    for (const d of BADGE_DEFS) void fetchOneBadge(d.table, country);
+  }, [fetchOneBadge]);
+
+  const loadStats = useCallback(() => loadAllBadges(statsCountry), [loadAllBadges, statsCountry]);
+
+  const handleStatsCountryChange = useCallback((country: string) => {
+    setStatsCountry(country);
+    if (typeof window !== "undefined") localStorage.setItem(STATS_COUNTRY_KEY, country);
+    loadAllBadges(country);
+  }, [loadAllBadges]);
+
+  // Load all badges once on mount using the persisted country
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? (localStorage.getItem(STATS_COUNTRY_KEY) ?? "") : "";
+    loadAllBadges(saved);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------- Selection helpers ---------- */
   const toggleCountry = (code: string) => {
@@ -287,6 +333,7 @@ export function GeoDataLab() {
   }, [localProvider, localCountry, localBatchSize, localMaxRetries, loadStats]);
 
   /* ---------- Derived ---------- */
+  const anyBadgeLoading = Object.values(badgeStats).some((b) => b.loading);
   const countryName = (c: string) => SUPPORTED_COUNTRIES.find((x) => x.code === c)?.name ?? c;
   const doneJobs = fetchJobs.filter((j) => j.status === "done");
   const errorJobs = fetchJobs.filter((j) => j.status === "error");
@@ -303,28 +350,45 @@ export function GeoDataLab() {
 
       {/* ---- Stats ---- */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>Adatbázis statisztika</h3>
-          <button className="secondary" onClick={() => void loadStats()} disabled={statsLoading} style={{ width: "auto", padding: "6px 16px", fontSize: 12 }}>
-            {statsLoading ? "…" : "Frissítés"}
-          </button>
-        </div>
-        {stats && (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10, marginTop: 12 }}>
-            {[
-              { v: stats.geoapify_count, l: "Geoapify POI", c: "#22c55e" },
-              { v: stats.tomtom_count, l: "TomTom POI", c: "#3b82f6" },
-              { v: stats.aws_count ?? 0, l: "AWS POI", c: "#f97316" },
-              { v: stats.unified_count, l: "Egyesített POI", c: "#f59e0b" },
-              { v: stats.local_count ?? 0, l: "Local POI", c: "#a78bfa" },
-            ].map((s) => (
-              <div key={s.l} style={{ background: "#1a2440", borderRadius: 10, padding: 14, textAlign: "center" }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: s.c }}>{s.v.toLocaleString()}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{s.l}</div>
-              </div>
-            ))}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <select
+              value={statsCountry}
+              onChange={(e) => handleStatsCountryChange(e.target.value)}
+              style={{ width: "auto", fontSize: 12, padding: "5px 8px", borderRadius: 6, background: "#1a2440", color: "#eef3ff", border: "1px solid #233158" }}
+            >
+              <option value="">Összes ország</option>
+              {SUPPORTED_COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.name}</option>)}
+            </select>
+            <button className="secondary" onClick={() => loadAllBadges(statsCountry)} disabled={anyBadgeLoading} style={{ width: "auto", padding: "6px 16px", fontSize: 12 }}>
+              {anyBadgeLoading ? "…" : "Frissítés"}
+            </button>
           </div>
-        )}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+          {BADGE_DEFS.map((def) => {
+            const b = badgeStats[def.table];
+            return (
+              <div
+                key={def.table}
+                onClick={() => void fetchOneBadge(def.table, statsCountry)}
+                style={{ background: "#1a2440", borderRadius: 10, padding: "14px 14px 10px", textAlign: "center", cursor: "pointer", opacity: b.loading ? 0.65 : 1, transition: "opacity 0.2s" }}
+                title="Kattints a frissítéshez"
+              >
+                <div style={{ fontSize: 28, fontWeight: 700, color: def.color }}>
+                  {b.loading ? "…" : b.count !== null ? b.count.toLocaleString() : "—"}
+                </div>
+                <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{def.label}</div>
+                {b.updatedAt && (
+                  <div style={{ fontSize: 10, color: "#3d5077", marginTop: 5 }}>
+                    last updated: {new Date(b.updatedAt).toLocaleTimeString("hu-HU")}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* ---- Steps ---- */}
