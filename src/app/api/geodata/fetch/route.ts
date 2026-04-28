@@ -291,6 +291,7 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 // Do NOT attach Authorization/X-Amz-* headers in this mode.
 // MaxResults maximum for search-text is 20.
 const AWS_PAGE = 20;
+const AWS_ADDRESS_DATABASE_CATEGORY = "__address_db__";
 
 interface AwsPlaceAddress {
   Label?: string;
@@ -301,6 +302,13 @@ interface AwsPlaceAddress {
   District?: string;
   PostalCode?: string;
   Street?: string;
+  StreetComponents?: {
+    BaseName?: string;
+    Type?: string;
+    TypePlacement?: string;
+    TypeSeparator?: string;
+    Language?: string;
+  }[];
   AddressNumber?: string;
   Building?: string;
 }
@@ -333,8 +341,18 @@ interface AwsSearchTextResponse {
   NextToken?: string;
 }
 
+interface AwsReverseGeocodeResponse {
+  ResultItems?: AwsPlaceResultItem[];
+}
+
 function buildAwsPlacesV2SearchTextUrl(region: string, apiKey: string): string {
   const url = new URL(`https://places.geo.${region}.amazonaws.com/v2/search-text`);
+  url.searchParams.set("key", apiKey);
+  return url.toString();
+}
+
+function buildAwsPlacesV2ReverseGeocodeUrl(region: string, apiKey: string): string {
+  const url = new URL(`https://places.geo.${region}.amazonaws.com/v2/reverse-geocode`);
   url.searchParams.set("key", apiKey);
   return url.toString();
 }
@@ -344,53 +362,21 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
 
   const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
+  const country = SUPPORTED_COUNTRIES.find((c) => c.code === countryCode.toUpperCase());
+  if (!country) throw new Error(`Unsupported country: ${countryCode}`);
+
+  const [lon1, lat1, lon2, lat2] = country.bbox;
   const baseUrl = buildAwsPlacesV2SearchTextUrl(region, apiKey);
+  const reverseGeocodeUrl = buildAwsPlacesV2ReverseGeocodeUrl(region, apiKey);
 
   const sb = getSupabaseAdmin();
   const errors: string[] = [];
   let inserted = 0;
   let skipped = 0;
   let totalFetched = 0;
-  let nextToken: string | undefined;
 
-  do {
-    const body: Record<string, unknown> = {
-      QueryText: category,
-      Filter: { IncludeCountries: [countryCode.toUpperCase()] },
-      MaxResults: AWS_PAGE,
-      Language: "hu",
-    };
-    if (nextToken) body.NextToken = nextToken;
-
-    let res: Response;
-    try {
-      res = await fetch(baseUrl, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json",
-        },
-        body: JSON.stringify(body),
-        cache: "no-store",
-      });
-    } catch (networkErr) {
-      errors.push(`AWS network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`);
-      break;
-    }
-
-    if (!res.ok) {
-      errors.push(`AWS ${res.status}: ${(await res.text()).slice(0, 300)}`);
-      break;
-    }
-
-    const data = (await res.json()) as AwsSearchTextResponse;
-    const items = data.ResultItems ?? [];
-    nextToken = data.NextToken ?? undefined;
-
-    if (items.length === 0) break;
-    totalFetched += items.length;
-
-    const rows = items
+  const mapRows = (items: AwsPlaceResultItem[]) =>
+    items
       .filter((item) => item.PlaceId && item.Position)
       .map((item) => {
         const addr = item.Address ?? {};
@@ -406,10 +392,14 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
           country: addr.Country?.Name ?? null,
           country_code_iso3: addr.Country?.Code3 ?? null,
           state_region: addr.Region?.Name ?? null,
+          state_region_code: addr.Region?.Code ?? null,
+          sub_region_name: addr.SubRegion?.Name ?? null,
+          sub_region_code: addr.SubRegion?.Code ?? null,
           city: addr.Locality ?? null,
           district: addr.District ?? null,
           postal_code: addr.PostalCode ?? null,
           street: addr.Street ?? null,
+          street_components: addr.StreetComponents ?? [],
           street_number: addr.AddressNumber ?? null,
           formatted_address: addr.Label ?? null,
           lat,
@@ -425,21 +415,98 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
         };
       });
 
-    if (rows.length > 0) {
-      const { error, count } = await sb
-        .from("aws_pois")
-        .upsert(rows, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
-      if (error) errors.push(`DB: ${error.message}`);
-      else inserted += count ?? rows.length;
-      skipped += rows.length - (count ?? rows.length);
-    }
+  const upsertRows = async (rows: ReturnType<typeof mapRows>) => {
+    if (rows.length === 0) return;
+    const { error, count } = await sb
+      .from("aws_pois")
+      .upsert(rows, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
+    if (error) errors.push(`DB: ${error.message}`);
+    else inserted += count ?? rows.length;
+    skipped += rows.length - (count ?? rows.length);
+  };
 
-    await new Promise((r) => setTimeout(r, 150));
-  } while (nextToken);
+  if (category === AWS_ADDRESS_DATABASE_CATEGORY) {
+    const step = Number(process.env.AWS_ADDRESS_GRID_STEP_DEGREES ?? "0.35");
+
+    for (let lon = lon1; lon <= lon2; lon += step) {
+      for (let lat = lat1; lat <= lat2; lat += step) {
+        let res: Response;
+        try {
+          res = await fetch(reverseGeocodeUrl, {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({
+              QueryPosition: [Number(lon.toFixed(6)), Number(lat.toFixed(6))],
+              Language: "hu",
+            }),
+            cache: "no-store",
+          });
+        } catch (networkErr) {
+          errors.push(`AWS network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`);
+          continue;
+        }
+
+        if (!res.ok) {
+          errors.push(`AWS ${res.status}: ${(await res.text()).slice(0, 300)}`);
+          continue;
+        }
+
+        const data = (await res.json()) as AwsReverseGeocodeResponse;
+        const items = data.ResultItems ?? [];
+        totalFetched += items.length;
+        await upsertRows(mapRows(items));
+        await new Promise((r) => setTimeout(r, 80));
+      }
+    }
+  } else {
+    let nextToken: string | undefined;
+
+    do {
+      const body: Record<string, unknown> = {
+        QueryText: category,
+        Filter: {
+          IncludeCountries: [countryCode.toUpperCase()],
+          BoundingBox: [lon1, lat1, lon2, lat2],
+        },
+        MaxResults: AWS_PAGE,
+        Language: "hu",
+      };
+      if (nextToken) body.NextToken = nextToken;
+
+      let res: Response;
+      try {
+        res = await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json",
+          },
+          body: JSON.stringify(body),
+          cache: "no-store",
+        });
+      } catch (networkErr) {
+        errors.push(`AWS network error: ${networkErr instanceof Error ? networkErr.message : String(networkErr)}`);
+        break;
+      }
+
+      if (!res.ok) {
+        errors.push(`AWS ${res.status}: ${(await res.text()).slice(0, 300)}`);
+        break;
+      }
+
+      const data = (await res.json()) as AwsSearchTextResponse;
+      const items = data.ResultItems ?? [];
+      nextToken = data.NextToken ?? undefined;
+
+      if (items.length === 0) break;
+      totalFetched += items.length;
+      await upsertRows(mapRows(items));
+      await new Promise((r) => setTimeout(r, 120));
+    } while (nextToken);
+  }
 
   return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors };
 }
-
 /* ------------------------------------------------------------------ */
 export async function POST(req: Request) {
   try {
