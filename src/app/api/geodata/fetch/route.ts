@@ -335,7 +335,7 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
   if (!apiKey) throw new Error("AWS_LOCATION_API_KEY not set.");
 
   const region = process.env.AWS_LOCATION_REGION ?? "eu-central-1";
-  const baseUrl = `https://places.geo.${region}.amazonaws.com/v2/searchText?key=${apiKey}`;
+  const baseUrl = `https://places.geo.${region}.amazonaws.com/v2/searchText`;
 
   const sb = getSupabaseAdmin();
   const errors: string[] = [];
@@ -355,7 +355,10 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
 
     const res = await fetch(baseUrl, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-amz-api-key": apiKey,
+      },
       body: JSON.stringify(body),
       cache: "no-store",
     });
