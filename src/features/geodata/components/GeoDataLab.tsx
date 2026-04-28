@@ -194,14 +194,52 @@ export function GeoDataLab() {
       setFetchJobs([...jobs]);
 
       try {
-        const res = await fetch("/api/geodata/fetch", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ provider: jobs[i].provider, countryCode: jobs[i].country, category: jobs[i].category }),
-        });
-        const json = (await res.json()) as GeoFetchResponse & { error?: string };
-        if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-        jobs[i] = { ...jobs[i], status: "done", result: json };
+        let continuationToken: string | undefined;
+        let aggregated: GeoFetchResponse | null = null;
+        let safetyCounter = 0;
+
+        do {
+          const res = await fetch("/api/geodata/fetch", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              provider: jobs[i].provider,
+              countryCode: jobs[i].country,
+              category: jobs[i].category,
+              continuationToken,
+            }),
+          });
+          const json = (await res.json()) as GeoFetchResponse & { error?: string };
+          if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+
+          if (!aggregated) {
+            aggregated = json;
+          } else {
+            aggregated = {
+              ...aggregated,
+              inserted: (aggregated.inserted ?? 0) + (json.inserted ?? 0),
+              skipped: (aggregated.skipped ?? 0) + (json.skipped ?? 0),
+              total: (aggregated.total ?? 0) + (json.total ?? 0),
+              errors: [...(aggregated.errors ?? []), ...(json.errors ?? [])],
+              completed: json.completed,
+              continuationToken: json.continuationToken ?? null,
+              meta: {
+                apiCalls: (aggregated.meta?.apiCalls ?? 0) + (json.meta?.apiCalls ?? 0),
+                runtimeMs: (aggregated.meta?.runtimeMs ?? 0) + (json.meta?.runtimeMs ?? 0),
+              },
+            };
+          }
+
+          continuationToken = json.completed ? undefined : (json.continuationToken ?? undefined);
+          safetyCounter += 1;
+          if (safetyCounter > 2000) throw new Error("AWS continuation safety limit reached.");
+        } while (continuationToken && !stopDownload);
+
+        jobs[i] = {
+          ...jobs[i],
+          status: "done",
+          result: aggregated ?? { provider: jobs[i].provider, countryCode: jobs[i].country, category: jobs[i].category, inserted: 0, skipped: 0, total: 0, errors: [] },
+        };
       } catch (err) {
         jobs[i] = { ...jobs[i], status: "error", error: err instanceof Error ? err.message : "Error" };
       }
