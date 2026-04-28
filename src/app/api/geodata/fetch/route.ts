@@ -291,6 +291,7 @@ async function fetchTomTom(countryCode: string, category: string): Promise<GeoFe
 // Do NOT attach Authorization/X-Amz-* headers in this mode.
 // MaxResults maximum for search-text is 20.
 const AWS_PAGE = 20;
+const AWS_UPSERT_CHUNK_SIZE = 500;
 const AWS_ADDRESS_DATABASE_CATEGORY = "__address_db__";
 
 interface AwsPlaceAddress {
@@ -415,18 +416,32 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
         };
       });
 
-  const upsertRows = async (rows: ReturnType<typeof mapRows>) => {
+  const upsertRowsChunked = async (rows: ReturnType<typeof mapRows>) => {
     if (rows.length === 0) return;
-    const { error, count } = await sb
-      .from("aws_pois")
-      .upsert(rows, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
-    if (error) errors.push(`DB: ${error.message}`);
-    else inserted += count ?? rows.length;
-    skipped += rows.length - (count ?? rows.length);
+    for (let i = 0; i < rows.length; i += AWS_UPSERT_CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + AWS_UPSERT_CHUNK_SIZE);
+      const { error, count } = await sb
+        .from("aws_pois")
+        .upsert(chunk, { onConflict: "external_id", ignoreDuplicates: true, count: "exact" });
+      if (error) {
+        errors.push(`DB: ${error.message}`);
+        continue;
+      }
+      inserted += count ?? chunk.length;
+      skipped += chunk.length - (count ?? chunk.length);
+    }
+  };
+
+  const enforceCountryFilter = (rows: ReturnType<typeof mapRows>) => {
+    const wanted = countryCode.toUpperCase();
+    return rows.filter((row) => (row.country_code ?? "").toUpperCase() === wanted);
   };
 
   if (category === AWS_ADDRESS_DATABASE_CATEGORY) {
-    const step = Number(process.env.AWS_ADDRESS_GRID_STEP_DEGREES ?? "0.35");
+    const step = Number(process.env.AWS_ADDRESS_GRID_STEP_DEGREES ?? "0.05");
+    if (!Number.isFinite(step) || step <= 0) throw new Error("AWS_ADDRESS_GRID_STEP_DEGREES must be a positive number.");
+    const bufferedRows: ReturnType<typeof mapRows> = [];
+    const seenExternalIds = new Set<string>();
 
     for (let lon = lon1; lon <= lon2; lon += step) {
       for (let lat = lat1; lat <= lat2; lat += step) {
@@ -453,11 +468,21 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
 
         const data = (await res.json()) as AwsReverseGeocodeResponse;
         const items = data.ResultItems ?? [];
-        totalFetched += items.length;
-        await upsertRows(mapRows(items));
+        const filteredRows = enforceCountryFilter(mapRows(items));
+        totalFetched += filteredRows.length;
+        for (const row of filteredRows) {
+          if (seenExternalIds.has(row.external_id)) continue;
+          seenExternalIds.add(row.external_id);
+          bufferedRows.push(row);
+          if (bufferedRows.length >= AWS_UPSERT_CHUNK_SIZE) {
+            const toWrite = bufferedRows.splice(0, bufferedRows.length);
+            await upsertRowsChunked(toWrite);
+          }
+        }
         await new Promise((r) => setTimeout(r, 80));
       }
     }
+    if (bufferedRows.length > 0) await upsertRowsChunked(bufferedRows);
   } else {
     let nextToken: string | undefined;
 
@@ -499,8 +524,9 @@ async function fetchAwsLocation(countryCode: string, category: string): Promise<
       nextToken = data.NextToken ?? undefined;
 
       if (items.length === 0) break;
-      totalFetched += items.length;
-      await upsertRows(mapRows(items));
+      const filteredRows = enforceCountryFilter(mapRows(items));
+      totalFetched += filteredRows.length;
+      await upsertRowsChunked(filteredRows);
       await new Promise((r) => setTimeout(r, 120));
     } while (nextToken);
   }
