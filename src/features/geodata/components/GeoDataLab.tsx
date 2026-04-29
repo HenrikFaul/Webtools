@@ -216,7 +216,9 @@ export function GeoDataLab() {
             aggregated = json;
           } else {
             aggregated = {
-              ...aggregated,
+              provider: aggregated.provider,
+              countryCode: aggregated.countryCode,
+              category: aggregated.category,
               inserted: (aggregated.inserted ?? 0) + (json.inserted ?? 0),
               skipped: (aggregated.skipped ?? 0) + (json.skipped ?? 0),
               total: (aggregated.total ?? 0) + (json.total ?? 0),
