@@ -28,15 +28,19 @@ export async function GET(req: Request) {
           ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
           : "id, name, categories, country_code, freeform_address, lat, lon, phone, url, fetched_at, fetch_category";
 
-    let query = sb
-      .from(table === "aws_hu_addresses" ? "aws_pois" : table)
+    const dbTable = table === "aws_hu_addresses" ? "aws_pois" : table;
+    const orderColumn = table === "osm_addresses" ? "display_name" : "name";
+
+    // Dynamic provider tables make Supabase's generated query type too complex for TS.
+    // The cast keeps runtime behavior unchanged and fixes TS2590 during build/typecheck.
+    let query = (sb.from(dbTable as never) as any)
       .select(columns, { count: "exact" })
       .range((page - 1) * pageSize, page * pageSize - 1)
-      .order(table === "osm_addresses" ? "display_name" : "name", { ascending: true, nullsFirst: false });
+      .order(orderColumn, { ascending: true, nullsFirst: false });
 
     if (country) query = query.eq("country_code", country);
     if (table === "aws_hu_addresses") query = query.eq("country_code", "HU").eq("fetch_category", "__address_db__");
-    if (category && table !== "unified_pois" && table !== "local_pois") query = query.eq("fetch_category", category);
+    if (category && table !== "unified_pois" && table !== "local_pois" && table !== "osm_addresses") query = query.eq("fetch_category", category);
     if (search) {
       if (table === "osm_addresses") query = query.or(`display_name.ilike.%${search}%,street.ilike.%${search}%,city.ilike.%${search}%,postcode.ilike.%${search}%`);
       else query = query.ilike("name", `%${search}%`);
@@ -45,9 +49,6 @@ export async function GET(req: Request) {
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    // Normalize TomTom's freeform_address to formatted_address for UI.
-    // Supabase's type-level select parser can infer ParserError for dynamic column strings,
-    // so cast only after the runtime error branch has been handled.
     const rawRows = (data ?? []) as unknown as Array<Record<string, unknown>>;
     const rows = rawRows.map((r) => ({
       ...r,
