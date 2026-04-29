@@ -590,6 +590,7 @@ export function GeoDataLab() {
               <option value="geoapify_pois">Geoapify POI-k</option>
               <option value="tomtom_pois">TomTom POI-k</option>
               <option value="aws_pois">AWS POI-k</option>
+              <option value="aws_hu_addresses">AWS HU címadatok</option>
               <option value="unified_pois">Egyesített POI-k</option>
               <option value="local_pois">Local POI-k</option>
             </select>
@@ -621,10 +622,22 @@ export function GeoDataLab() {
                 <thead><tr style={{ borderBottom: "2px solid #233158" }}>
                   <th style={{ padding: "6px 8px", textAlign: "left" }}>Név</th>
                   <th style={{ padding: "6px 8px", textAlign: "left" }}>Ország</th>
-                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Cím</th>
-                  <th style={{ padding: "6px 8px", textAlign: "left" }}>Kategóriák</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right" }}>Lat</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right" }}>Lon</th>
+                  {reviewTable === "aws_hu_addresses" ? (
+                    <>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Település</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Irányítószám</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Közterület</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Közterület jelleg</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Place ID</th>
+                    </>
+                  ) : (
+                    <>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Cím</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left" }}>Kategóriák</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Lat</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right" }}>Lon</th>
+                    </>
+                  )}
                   {(reviewTable === "unified_pois" || reviewTable === "local_pois") && <th style={{ padding: "6px 8px", textAlign: "left" }}>Forrás</th>}
                 </tr></thead>
                 <tbody>
@@ -632,10 +645,22 @@ export function GeoDataLab() {
                     <tr key={row.id} style={{ borderBottom: "1px solid #1a2440" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 500 }}>{row.name ?? "—"}</td>
                       <td style={{ padding: "6px 8px" }}>{row.country_code}</td>
-                      <td style={{ padding: "6px 8px", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.formatted_address ?? "—"}</td>
-                      <td style={{ padding: "6px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(row.categories ?? []).slice(0, 3).join(", ")}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat?.toFixed(4)}</td>
-                      <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon?.toFixed(4)}</td>
+                      {reviewTable === "aws_hu_addresses" ? (
+                        <>
+                          <td style={{ padding: "6px 8px" }}>{String(row.city ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String(row.postal_code ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String(row.street ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String((row.street_components as { Type?: string }[] | undefined)?.[0]?.Type ?? "—")}</td>
+                          <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{String(row.external_id ?? "—")}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ padding: "6px 8px", maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.formatted_address ?? "—"}</td>
+                          <td style={{ padding: "6px 8px", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(row.categories ?? []).slice(0, 3).join(", ")}</td>
+                          <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lat?.toFixed(4)}</td>
+                          <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>{row.lon?.toFixed(4)}</td>
+                        </>
+                      )}
                       {(reviewTable === "unified_pois" || reviewTable === "local_pois") && <td style={{ padding: "6px 8px" }}>
                         <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: row.source_provider === "geoapify" ? "rgba(34,197,94,0.2)" : row.source_provider === "aws" ? "rgba(249,115,22,0.2)" : "rgba(59,130,246,0.2)", color: row.source_provider === "geoapify" ? "#22c55e" : row.source_provider === "aws" ? "#f97316" : "#3b82f6" }}>
                           {row.source_provider}
