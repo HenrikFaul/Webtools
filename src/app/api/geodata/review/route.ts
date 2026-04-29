@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
     const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("pageSize") ?? "50")));
 
-    const allowed = ["geoapify_pois", "tomtom_pois", "aws_pois", "unified_pois", "local_pois"];
+    const allowed = ["geoapify_pois", "tomtom_pois", "aws_pois", "aws_hu_addresses", "unified_pois", "local_pois"];
     if (!allowed.includes(table)) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
 
     const sb = getSupabaseAdmin();
@@ -20,17 +20,20 @@ export async function GET(req: Request) {
       ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, source_provider"
       : table === "geoapify_pois"
         ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
+        : table === "aws_hu_addresses"
+          ? "id, external_id, country, country_code, city, postal_code, street, street_components, formatted_address"
         : table === "aws_pois"
           ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
           : "id, name, categories, country_code, freeform_address, lat, lon, phone, url, fetched_at, fetch_category";
 
     let query = sb
-      .from(table)
+      .from(table === "aws_hu_addresses" ? "aws_pois" : table)
       .select(columns, { count: "exact" })
       .range((page - 1) * pageSize, page * pageSize - 1)
       .order("name", { ascending: true, nullsFirst: false });
 
     if (country) query = query.eq("country_code", country);
+    if (table === "aws_hu_addresses") query = query.eq("country_code", "HU").eq("fetch_category", "__address_db__");
     if (category && table !== "unified_pois" && table !== "local_pois") query = query.eq("fetch_category", category);
     if (search) query = query.ilike("name", `%${search}%`);
 
