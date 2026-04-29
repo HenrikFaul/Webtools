@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const page = Math.max(1, Number(url.searchParams.get("page") ?? "1"));
     const pageSize = Math.min(100, Math.max(10, Number(url.searchParams.get("pageSize") ?? "50")));
 
-    const allowed = ["geoapify_pois", "tomtom_pois", "aws_pois", "aws_hu_addresses", "unified_pois", "local_pois"];
+    const allowed = ["geoapify_pois", "tomtom_pois", "aws_pois", "aws_hu_addresses", "osm_addresses", "unified_pois", "local_pois"];
     if (!allowed.includes(table)) return NextResponse.json({ error: "Invalid table" }, { status: 400 });
 
     const sb = getSupabaseAdmin();
@@ -22,6 +22,8 @@ export async function GET(req: Request) {
         ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
         : table === "aws_hu_addresses"
           ? "id, external_id, country, country_code, city, postal_code, street, street_components, formatted_address"
+        : table === "osm_addresses"
+          ? "id, osm_id, osm_type, display_name, country_code, country, state, county, city, municipality, suburb, postcode, street, street_type, housenumber, floor, door, unit, lat, lon, raw_tags, imported_at"
         : table === "aws_pois"
           ? "id, name, categories, country_code, formatted_address, lat, lon, phone, website, fetched_at, fetch_category"
           : "id, name, categories, country_code, freeform_address, lat, lon, phone, url, fetched_at, fetch_category";
@@ -30,12 +32,15 @@ export async function GET(req: Request) {
       .from(table === "aws_hu_addresses" ? "aws_pois" : table)
       .select(columns, { count: "exact" })
       .range((page - 1) * pageSize, page * pageSize - 1)
-      .order("name", { ascending: true, nullsFirst: false });
+      .order(table === "osm_addresses" ? "display_name" : "name", { ascending: true, nullsFirst: false });
 
     if (country) query = query.eq("country_code", country);
     if (table === "aws_hu_addresses") query = query.eq("country_code", "HU").eq("fetch_category", "__address_db__");
     if (category && table !== "unified_pois" && table !== "local_pois") query = query.eq("fetch_category", category);
-    if (search) query = query.ilike("name", `%${search}%`);
+    if (search) {
+      if (table === "osm_addresses") query = query.or(`display_name.ilike.%${search}%,street.ilike.%${search}%,city.ilike.%${search}%,postcode.ilike.%${search}%`);
+      else query = query.ilike("name", `%${search}%`);
+    }
 
     const { data, error, count } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -46,7 +51,9 @@ export async function GET(req: Request) {
     const rawRows = (data ?? []) as unknown as Array<Record<string, unknown>>;
     const rows = rawRows.map((r) => ({
       ...r,
-      formatted_address: r.formatted_address ?? r.freeform_address ?? null,
+      name: r.name ?? r.display_name ?? null,
+      formatted_address: r.formatted_address ?? r.freeform_address ?? r.display_name ?? null,
+      categories: Array.isArray(r.categories) ? r.categories : [],
     }));
 
     return NextResponse.json({ rows, total: count ?? 0, page, pageSize, totalPages: Math.ceil((count ?? 0) / pageSize) });

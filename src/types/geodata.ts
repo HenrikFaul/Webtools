@@ -197,7 +197,13 @@ export const TOMTOM_CATEGORY_GROUPS: CategoryGroup[] = [
   ]},
 ];
 
-export type GeoProvider = "geoapify" | "tomtom" | "aws";
+export const OSM_ADDRESS_CATEGORY_GROUPS: CategoryGroup[] = [
+  { groupKey: "address_db", groupLabel: "Címadatbázis", items: [
+    { key: "__osm_full_address_db__", label: "Teljes OSM címadatbázis (ország)" },
+  ]},
+];
+
+export type GeoProvider = "geoapify" | "tomtom" | "aws" | "osm";
 
 export interface GeoFetchRequest {
   provider: GeoProvider;
@@ -226,11 +232,13 @@ export interface GeoStatsResponse {
   geoapify_count: number;
   tomtom_count: number;
   aws_count: number;
+  osm_addresses_count: number;
   unified_count: number;
   local_count: number;
   geoapify_by_country: Record<string, number>;
   tomtom_by_country: Record<string, number>;
   aws_by_country: Record<string, number>;
+  osm_addresses_by_country: Record<string, number>;
   unified_by_country: Record<string, number>;
   local_by_country: Record<string, number>;
 }
@@ -280,6 +288,7 @@ export interface GeoLocalLoadResponse {
 export function getCategoryGroups(provider: GeoProvider): CategoryGroup[] {
   if (provider === "geoapify") return GEOAPIFY_CATEGORY_GROUPS;
   if (provider === "aws") return AWS_LOCATION_CATEGORY_GROUPS;
+  if (provider === "osm") return OSM_ADDRESS_CATEGORY_GROUPS;
   return TOMTOM_CATEGORY_GROUPS;
 }
 export function getAllCategoryKeys(groups: CategoryGroup[]): string[] {

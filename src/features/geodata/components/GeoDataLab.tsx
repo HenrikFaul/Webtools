@@ -19,11 +19,12 @@ type Step = "select" | "download" | "review" | "merge" | "local";
 
 /* ---- Per-badge stats ---- */
 interface BadgeStat { count: number | null; loading: boolean; updatedAt: string | null; }
-type BadgeTable = "geoapify_pois" | "tomtom_pois" | "aws_pois" | "unified_pois" | "local_pois";
+type BadgeTable = "geoapify_pois" | "tomtom_pois" | "aws_pois" | "osm_addresses" | "unified_pois" | "local_pois";
 const BADGE_DEFS: { table: BadgeTable; label: string; color: string }[] = [
   { table: "geoapify_pois", label: "Geoapify POI", color: "#22c55e" },
   { table: "tomtom_pois", label: "TomTom POI", color: "#3b82f6" },
   { table: "aws_pois", label: "AWS POI", color: "#f97316" },
+  { table: "osm_addresses", label: "OSM címek", color: "#14b8a6" },
   { table: "unified_pois", label: "Egyesített POI", color: "#f59e0b" },
   { table: "local_pois", label: "Local POI", color: "#a78bfa" },
 ];
@@ -450,9 +451,9 @@ export function GeoDataLab() {
         <div className="card">
           <h3 style={{ margin: "0 0 10px" }}>Szolgáltató</h3>
           <div className="chips">
-            {(["geoapify", "tomtom", "aws"] as GeoProvider[]).map((p) => (
-              <button key={p} className={selectedProvider === p ? "" : "secondary"} onClick={() => { setSelectedProvider(p); setSelectedCategories(new Set()); }} style={{ width: "auto", padding: "8px 24px", textTransform: "capitalize" }}>
-                {p === "geoapify" ? "Geoapify" : p === "tomtom" ? "TomTom" : "AWS Location"}
+            {(["geoapify", "tomtom", "aws", "osm"] as GeoProvider[]).map((p) => (
+              <button key={p} className={selectedProvider === p ? "" : "secondary"} onClick={() => { setSelectedProvider(p); setSelectedCategories(p === "osm" ? new Set(["__osm_full_address_db__"]) : new Set()); }} style={{ width: "auto", padding: "8px 24px", textTransform: "capitalize" }}>
+                {p === "geoapify" ? "Geoapify" : p === "tomtom" ? "TomTom" : p === "aws" ? "AWS Location" : "OSM címadatbázis"}
               </button>
             ))}
           </div>
@@ -525,7 +526,7 @@ export function GeoDataLab() {
         {/* Start */}
         <div className="card">
           <p className="muted" style={{ fontSize: 13, margin: "0 0 10px" }}>
-            <strong>{selectedCountries.size}</strong> ország × <strong>{selectedCategories.size}</strong> kategória = <strong>{selectedCountries.size * selectedCategories.size}</strong> API lekérés ({selectedProvider}) — NINCS limit, az összes POI letöltésre kerül.
+            <strong>{selectedCountries.size}</strong> ország × <strong>{selectedCategories.size}</strong> kategória = <strong>{selectedCountries.size * selectedCategories.size}</strong> lekérés ({selectedProvider}). {selectedProvider === "osm" ? "Az OSM teljes címadatbázis importját a szerveroldali Geofabrik import script végzi; ez a gomb a külön osm_addresses tábla állapotát ellenőrzi." : "NINCS limit, az összes POI letöltésre kerül."}
           </p>
           <button onClick={() => void startDownload()} disabled={selectedCategories.size === 0 || selectedCountries.size === 0}>
             Letöltés indítása
@@ -593,6 +594,7 @@ export function GeoDataLab() {
               <option value="tomtom_pois">TomTom POI-k</option>
               <option value="aws_pois">AWS POI-k</option>
               <option value="aws_hu_addresses">AWS HU címadatok</option>
+              <option value="osm_addresses">OSM teljes címadatbázis</option>
               <option value="unified_pois">Egyesített POI-k</option>
               <option value="local_pois">Local POI-k</option>
             </select>
@@ -624,7 +626,7 @@ export function GeoDataLab() {
                 <thead><tr style={{ borderBottom: "2px solid #233158" }}>
                   <th style={{ padding: "6px 8px", textAlign: "left" }}>Név</th>
                   <th style={{ padding: "6px 8px", textAlign: "left" }}>Ország</th>
-                  {reviewTable === "aws_hu_addresses" ? (
+                  {reviewTable === "aws_hu_addresses" || reviewTable === "osm_addresses" ? (
                     <>
                       <th style={{ padding: "6px 8px", textAlign: "left" }}>Település</th>
                       <th style={{ padding: "6px 8px", textAlign: "left" }}>Irányítószám</th>
@@ -647,13 +649,13 @@ export function GeoDataLab() {
                     <tr key={row.id} style={{ borderBottom: "1px solid #1a2440" }}>
                       <td style={{ padding: "6px 8px", fontWeight: 500 }}>{row.name ?? "—"}</td>
                       <td style={{ padding: "6px 8px" }}>{row.country_code}</td>
-                      {reviewTable === "aws_hu_addresses" ? (
+                      {reviewTable === "aws_hu_addresses" || reviewTable === "osm_addresses" ? (
                         <>
-                          <td style={{ padding: "6px 8px" }}>{String(row.city ?? "—")}</td>
-                          <td style={{ padding: "6px 8px" }}>{String(row.postal_code ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String(row.city ?? row.municipality ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String(row.postal_code ?? row.postcode ?? "—")}</td>
                           <td style={{ padding: "6px 8px" }}>{String(row.street ?? "—")}</td>
-                          <td style={{ padding: "6px 8px" }}>{String((row.street_components as { Type?: string }[] | undefined)?.[0]?.Type ?? "—")}</td>
-                          <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{String(row.external_id ?? "—")}</td>
+                          <td style={{ padding: "6px 8px" }}>{String(row.street_type ?? (row.street_components as { Type?: string }[] | undefined)?.[0]?.Type ?? "—")}</td>
+                          <td style={{ padding: "6px 8px", fontFamily: "monospace", fontSize: 11 }}>{String(row.housenumber ?? row.external_id ?? row.osm_id ?? "—")}</td>
                         </>
                       ) : (
                         <>
@@ -837,7 +839,7 @@ export function GeoDataLab() {
             <strong>3.</strong> Ellenőrizd a letöltött címeket a harmadik fülön szűréssel/lapozással.<br />
             <strong>4.</strong> Egyesítsd a közös címtáblába — a rendszer nem duplikál, csak hiányzó mezőket pótol.<br />
             <strong>5.</strong> Futtasd a self-healing ETL-t a <code>local_pois</code> táblába; zöld siker csak validált darabszám-egyezés után jár.<br /><br />
-            <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>AWS_LOCATION_API_KEY</code>, <code>AWS_LOCATION_REGION</code> (alapértelmezett: eu-central-1), <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>
+            <strong>Env vars:</strong> <code>GEOAPIFY_API_KEY</code>, <code>TOMTOM_API_KEY</code>, <code>AWS_LOCATION_API_KEY</code>, <code>AWS_LOCATION_REGION</code> (alapértelmezett: eu-central-1), <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>. OSM címadatbázishoz: futtasd a <code>npm run import:osm-addresses -- --country=HU</code> scriptet Geofabrik PBF importtal.
           </div>
         </div>
       )}

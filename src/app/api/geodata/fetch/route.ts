@@ -586,6 +586,47 @@ async function fetchAwsLocation(countryCode: string, category: string, options?:
 
   return { provider: "aws", countryCode, category, inserted, skipped, total: totalFetched, errors, completed, continuationToken, meta: { apiCalls, runtimeMs: Date.now() - startedAt } };
 }
+
+/* ------------------------------------------------------------------ */
+/*  OSM / Geofabrik address database import status                    */
+/* ------------------------------------------------------------------ */
+
+const OSM_ADDRESS_DATABASE_CATEGORY = "__osm_full_address_db__";
+
+async function fetchOsmAddressDatabase(countryCode: string, category: string): Promise<GeoFetchResponse> {
+  if (category !== OSM_ADDRESS_DATABASE_CATEGORY) {
+    throw new Error("OSM provider only supports the full address database category.");
+  }
+
+  const country = SUPPORTED_COUNTRIES.find((c) => c.code === countryCode.toUpperCase());
+  if (!country) throw new Error(`Unsupported country: ${countryCode}`);
+
+  const sb = getSupabaseAdmin();
+  const { count, error } = await sb
+    .from("osm_addresses")
+    .select("*", { count: "exact", head: true })
+    .eq("country_code", countryCode.toUpperCase());
+
+  if (error) {
+    throw new Error(`OSM address table is not ready: ${error.message}. Run the osm_addresses migration first.`);
+  }
+
+  return {
+    provider: "osm",
+    countryCode: countryCode.toUpperCase(),
+    category,
+    inserted: 0,
+    skipped: 0,
+    total: count ?? 0,
+    errors: [
+      "A teljes országos OSM címadatbázis import nem böngészős/API scraping feladat. Futtasd a scripts/import-osm-addresses.mjs scriptet Codespace-ban vagy szerveren. Ez a gomb a külön osm_addresses tábla állapotát ellenőrzi.",
+    ],
+    completed: true,
+    continuationToken: null,
+    meta: { apiCalls: 0, runtimeMs: 0 },
+  };
+}
+
 /* ------------------------------------------------------------------ */
 export async function POST(req: Request) {
   try {
@@ -604,7 +645,9 @@ export async function POST(req: Request) {
             maxApiCalls: payload.maxApiCalls,
             continuationToken: payload.continuationToken,
           })
-          : null;
+          : payload.provider === "osm"
+            ? await fetchOsmAddressDatabase(payload.countryCode, payload.category)
+            : null;
 
     if (!result) return NextResponse.json({ error: `Unknown provider: ${payload.provider}` }, { status: 400 });
     return NextResponse.json(result);

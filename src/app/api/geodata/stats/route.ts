@@ -5,6 +5,7 @@ const ALLOWED_TABLES = [
   "geoapify_pois",
   "tomtom_pois",
   "aws_pois",
+  "osm_addresses",
   "unified_pois",
   "local_pois",
 ] as const;
@@ -40,18 +41,20 @@ export async function GET(req: Request) {
 
     // All-tables mode (backward compat — also used by load-after-operation refresh)
     const counts = await Promise.all(ALLOWED_TABLES.map((t) => countTable(sb, t, country)));
-    const [geo, tom, aws, uni, local] = counts;
+    const [geo, tom, aws, osm, uni, local] = counts;
 
     return NextResponse.json({
       geoapify_count: geo,
       tomtom_count: tom,
       aws_count: aws,
+      osm_addresses_count: osm,
       unified_count: uni,
       local_count: local,
       country: country ?? null,
       geoapify_by_country: {},
       tomtom_by_country: {},
       aws_by_country: {},
+      osm_addresses_by_country: {},
       unified_by_country: {},
       local_by_country: {},
     });
