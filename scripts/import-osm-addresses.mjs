@@ -1,5 +1,4 @@
-import "dotenv/config";
-
+#!/usr/bin/env node
 /*
   Import full-country address records from a Geofabrik/OpenStreetMap .osm.pbf file into Supabase.
 
@@ -18,6 +17,7 @@ import "dotenv/config";
     SUPABASE_SERVICE_ROLE_KEY=eyJ...
 */
 
+import 'dotenv/config';
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -71,9 +71,17 @@ async function downloadFile(url, filePath) {
 }
 
 function getTags(feature) {
-  // osmium export can emit tags either directly in properties or nested depending on version/options.
+  // osmium export versions differ: tags can be nested under properties.tags or flattened into properties.
   const props = feature?.properties ?? {};
-  return props.tags && typeof props.tags === "object" ? props.tags : props;
+  const src = props.tags && typeof props.tags === "object" ? props.tags : props;
+  const tags = {};
+  for (const [key, value] of Object.entries(src)) {
+    if (value == null) continue;
+    if (String(key).startsWith("@")) continue;
+    if (["id", "type", "osm_id", "osm_type"].includes(String(key))) continue;
+    tags[key] = value;
+  }
+  return tags;
 }
 
 function parseOsmIdentity(feature) {
@@ -245,8 +253,11 @@ async function main() {
   if (!pbfPath) throw new Error(`No Geofabrik URL configured for country ${countryCode}. Pass --url=... or --pbf=...`);
   if (!existsSync(pbfPath)) await downloadFile(url, pbfPath);
 
+  // No pre-filtering: read the full country PBF directly.
+  // The importer scans every exported OSM feature and maps address fields in code,
+  // so no separate `osmium tags-filter` extract is created or used.
   const importSessionId = randomUUID();
-  console.log(`[import] country=${countryCode} file=${pbfPath} batch=${batchSize} session=${importSessionId}`);
+  console.log(`[import] country=${countryCode} file=${pbfPath} batch=${batchSize} session=${importSessionId} mode=full-pbf-no-prefilter`);
 
   const osmiumArgs = [
     "export",
@@ -289,6 +300,9 @@ async function main() {
   const exitCode = await new Promise((resolve) => child.on("close", resolve));
   if (exitCode !== 0) throw new Error(`osmium exited with code ${exitCode}`);
   console.log(`[done] scanned=${scanned.toLocaleString()} mapped=${mapped.toLocaleString()} written=${written.toLocaleString()} session=${importSessionId}`);
+  if (mapped === 0) {
+    console.warn("[warn] No address rows were mapped. The full PBF was scanned, but no address-like rows were produced. Check whether exported features contain addr:* tags.");
+  }
 }
 
 main().catch((err) => {
