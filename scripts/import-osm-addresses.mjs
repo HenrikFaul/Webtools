@@ -16,7 +16,7 @@
     NEXT_PUBLIC_SUPABASE_URL=https://xxxxx.supabase.co
     SUPABASE_SERVICE_ROLE_KEY=eyJ...
 */
-
+import 'dotenv/config';
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
