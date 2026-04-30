@@ -1,3 +1,7 @@
 node_modules
 .next
 *.tsbuildinfo
+
+# Local OSM imports
+/data/osm/
+*.osm.pbf
