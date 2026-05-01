@@ -194,6 +194,9 @@ export interface TestEngineResponse {
   result_count: number;
   sample_url?: string;
   error?: string;
+  endpoint_url?: string;
+  endpoint_method?: string;
+  query?: string;
 }
 
 export const SEARCH_ENGINES: SearchEngineDefinition[] = [

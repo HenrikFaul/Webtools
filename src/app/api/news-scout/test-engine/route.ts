@@ -137,59 +137,74 @@ async function testSerpApi(apiKey: string, query: string): Promise<TestResult> {
 
 export async function POST(req: Request) {
   try {
-    const { engine } = (await req.json()) as { engine: string };
+    const body = (await req.json()) as { engine: string; api_keys?: Record<string, string> };
+    const { engine } = body;
     if (!engine) return NextResponse.json({ error: "engine required" }, { status: 400 });
 
-    const db = getSupabaseAdmin();
-    const { data: cfg } = await db
-      .from("news_scout_config")
-      .select("api_keys")
-      .limit(1)
-      .maybeSingle();
-
-    const keys: Record<string, string> = (cfg?.api_keys && typeof cfg.api_keys === "object")
-      ? (cfg.api_keys as Record<string, string>)
-      : {};
+    // Use keys from request body first; fall back to DB
+    let keys: Record<string, string> = {};
+    if (body.api_keys && typeof body.api_keys === "object") {
+      keys = body.api_keys as Record<string, string>;
+    } else {
+      const db = getSupabaseAdmin();
+      const { data: cfg } = await db
+        .from("news_scout_config")
+        .select("api_keys")
+        .limit(1)
+        .maybeSingle();
+      keys = (cfg?.api_keys && typeof cfg.api_keys === "object")
+        ? (cfg.api_keys as Record<string, string>)
+        : {};
+    }
 
     const query = randomQuery();
     let result: TestResult;
+    let endpoint_url = "";
+    let endpoint_method = "GET";
 
     try {
       switch (engine) {
         case "google": {
           const apiKey = keys["google_api_key"] ?? "";
           const cx = keys["google_cx"] ?? "";
-          if (!apiKey || !cx) return NextResponse.json({ error: "Hiányzó API key: google_api_key és google_cx szükséges" }, { status: 400 });
+          if (!apiKey || !cx) return NextResponse.json({ error: "Hiányzó API key: google_api_key és google_cx szükséges", endpoint_url: "https://www.googleapis.com/customsearch/v1?q=...&key=...&cx=...&num=1" }, { status: 400 });
+          endpoint_url = `https://www.googleapis.com/customsearch/v1?q=${encodeURIComponent(query)}&key=...&cx=${cx}&num=1`;
           result = await testGoogle(apiKey, cx, query);
           break;
         }
         case "bing": {
           const apiKey = keys["bing_api_key"] ?? "";
-          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: bing_api_key szükséges" }, { status: 400 });
+          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: bing_api_key szükséges", endpoint_url: "https://api.bing.microsoft.com/v7.0/search?q=... (Header: Ocp-Apim-Subscription-Key)" }, { status: 400 });
+          endpoint_url = `https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(query)}&count=1`;
           result = await testBing(apiKey, query);
           break;
         }
         case "duckduckgo": {
           const apiKey = keys["searchapi_key"] ?? "";
-          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: searchapi_key szükséges" }, { status: 400 });
+          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: searchapi_key szükséges", endpoint_url: "https://www.searchapi.io/api/v1/search?engine=duckduckgo&q=...&api_key=..." }, { status: 400 });
+          endpoint_url = `https://www.searchapi.io/api/v1/search?engine=duckduckgo&q=${encodeURIComponent(query)}&api_key=...`;
           result = await testDuckDuckGo(apiKey, query);
           break;
         }
         case "brave": {
           const apiKey = keys["brave_api_key"] ?? "";
-          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: brave_api_key szükséges" }, { status: 400 });
+          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: brave_api_key szükséges", endpoint_url: "https://api.search.brave.com/res/v1/web/search?q=... (Header: X-Subscription-Token)" }, { status: 400 });
+          endpoint_url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=1`;
           result = await testBrave(apiKey, query);
           break;
         }
         case "serper": {
           const apiKey = keys["serper_api_key"] ?? "";
-          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: serper_api_key szükséges" }, { status: 400 });
+          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: serper_api_key szükséges", endpoint_url: "POST https://google.serper.dev/search (Header: X-API-KEY)" }, { status: 400 });
+          endpoint_url = "https://google.serper.dev/search";
+          endpoint_method = "POST";
           result = await testSerper(apiKey, query);
           break;
         }
         case "serpapi": {
           const apiKey = keys["serpapi_key"] ?? "";
-          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: serpapi_key szükséges" }, { status: 400 });
+          if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: serpapi_key szükséges", endpoint_url: "https://serpapi.com/search?engine=google&q=...&api_key=..." }, { status: 400 });
+          endpoint_url = `https://serpapi.com/search?engine=google&q=${encodeURIComponent(query)}&api_key=...&num=1`;
           result = await testSerpApi(apiKey, query);
           break;
         }
@@ -201,11 +216,13 @@ export async function POST(req: Request) {
         ok: false,
         http_status: 0,
         result_count: 0,
+        endpoint_url,
+        endpoint_method,
         error: err instanceof Error ? err.message : "Hálózati hiba",
-      } satisfies TestEngineResponse);
+      } satisfies TestEngineResponse & { endpoint_url: string; endpoint_method: string });
     }
 
-    return NextResponse.json({ ...result, query } satisfies TestEngineResponse & { query: string });
+    return NextResponse.json({ ...result, query, endpoint_url, endpoint_method });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Internal error" },
@@ -220,4 +237,6 @@ interface TestEngineResponse {
   result_count: number;
   sample_url?: string;
   error?: string;
+  endpoint_url?: string;
+  endpoint_method?: string;
 }
