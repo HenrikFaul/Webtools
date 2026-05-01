@@ -25,6 +25,7 @@ export async function GET() {
         notes: null,
         watchdog_timeout_minutes: 15,
         max_concurrent_runs: 1,
+        api_keys: {},
         updated_at: null,
         created_at: null,
       });
@@ -33,6 +34,7 @@ export async function GET() {
     return NextResponse.json({
       ...data,
       search_engines: Array.isArray(data.search_engines) ? data.search_engines : ["google", "bing"],
+      api_keys: (data.api_keys && typeof data.api_keys === "object") ? data.api_keys : {},
     });
   } catch (err) {
     return NextResponse.json(
@@ -59,12 +61,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "lookback_days: 1–365 között kell lennie" }, { status: 400 });
     }
 
+    // Sanitize api_keys: only allow string values, strip null/undefined
+    const rawKeys = body.api_keys ?? {};
+    const apiKeys: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawKeys)) {
+      if (typeof v === "string") apiKeys[k] = v;
+    }
+
     const db = getSupabaseAdmin();
     const { data: existing } = await db
       .from("news_scout_config")
-      .select("id")
+      .select("id, api_keys")
       .limit(1)
       .maybeSingle();
+
+    // Merge new api_keys over existing ones (preserves keys not sent in this request)
+    const mergedKeys = { ...(existing?.api_keys ?? {}), ...apiKeys };
 
     const payload = {
       schedule_enabled: Boolean(body.schedule_enabled),
@@ -76,6 +88,7 @@ export async function POST(req: Request) {
       notes: body.notes ?? null,
       watchdog_timeout_minutes: body.watchdog_timeout_minutes ?? 15,
       max_concurrent_runs: body.max_concurrent_runs ?? 1,
+      api_keys: mergedKeys,
     };
 
     let result;
@@ -98,7 +111,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: result.error.message }, { status: 500 });
     }
 
-    return NextResponse.json(result.data);
+    return NextResponse.json({
+      ...result.data,
+      api_keys: (result.data.api_keys && typeof result.data.api_keys === "object") ? result.data.api_keys : {},
+    });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Invalid JSON" },
