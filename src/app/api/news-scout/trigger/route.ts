@@ -47,12 +47,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // Create the run record
+    // Create the run record – manual triggers start immediately (running),
+    // not queued, because we are kicking it off right now.
     const { data: run, error: runErr } = await db
       .from("news_scan_runs")
       .insert({
         scope_description: "Manuális futtatás a Hírfelderítő Motor felületéről",
-        status: "queued",
+        status: "running",
         trigger_type: "manual",
       })
       .select("run_id, status, started_at")

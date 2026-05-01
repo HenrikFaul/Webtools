@@ -531,7 +531,12 @@ export function NewsScoutLab() {
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13 }}>
                 <input type="checkbox" checked={autoWatchdog} onChange={(e) => setAutoWatchdog(e.target.checked)} style={{ accentColor: "#4f8cff" }} />
-                Auto-watchdog (1 perces)
+                <span>
+                  Auto-watchdog
+                  <span className="muted" style={{ fontSize: 11, marginLeft: 4 }}>
+                    (ellenőrzés: 1 perc · ölési küszöb: {cfg.watchdog_timeout_minutes ?? 15} perc csend)
+                  </span>
+                </span>
               </label>
               <button
                 onClick={() => void runWatchdog()}
@@ -696,14 +701,17 @@ export function NewsScoutLab() {
           )}
         </div>
 
-        {/* Heartbeat info */}
+        {/* Heartbeat + státusz logika */}
         <div className="card">
-          <h3 style={{ margin: "0 0 8px" }}>Heartbeat integráció (n8n)</h3>
-          <div className="muted" style={{ fontSize: 13, lineHeight: 1.8 }}>
-            Az n8n workflow minden <strong>X helyszín</strong> feldolgozása után POST-ot küld a heartbeat endpointra. Ez frissíti az előrehaladást és megmutatja, hogy a futás él-e.<br />
+          <h3 style={{ margin: "0 0 8px" }}>Státuszok és heartbeat (n8n integráció)</h3>
+          <div className="muted" style={{ fontSize: 13, lineHeight: 1.9 }}>
+            <strong style={{ color: "#eef3ff" }}>running</strong> — a manuális indítás azonnal ebbe az állapotba teszi a futást (nem queued), mert már el is indult.<br />
+            <strong style={{ color: "#eef3ff" }}>queued</strong> — csak ütemező által létrehozott futásnál kerül ide, amíg az n8n workflow el nem indítja.<br />
+            <strong style={{ color: "#eef3ff" }}>Watchdog</strong> — ellenőrzési intervallum ≠ ölési küszöb. Az auto-watchdog percenként ellenőriz, de csak akkor öl, ha a futás <em>legalább X perce</em> nem adott életjelet (X = watchdog_timeout_minutes a Konfigurációban, default 15). Ha 2 perces futásnál 15 perces timeout van beállítva, a watchdog helyen várakozik.<br />
+            <strong style={{ color: "#eef3ff" }}>Heartbeat</strong> — az n8n workflow X helyszín után ezt hívja:<br />
             <code style={{ fontSize: 11 }}>POST /api/news-scout/runs/&#123;run_id&#125;/heartbeat</code><br />
-            Body: <code style={{ fontSize: 11 }}>{'{"progress_processed": 42, "progress_total": 1000, "status": "running"}'}</code><br />
-            Ha a válaszban <code>should_stop: true</code> jön vissza (mert manuálisan leállítottuk), az n8n workflow leállítja magát.
+            Body: <code style={{ fontSize: 11 }}>{"{"}"progress_processed": 42, "progress_total": 1000{"}"}</code><br />
+            Ha <code>should_stop: true</code> jön vissza, az n8n leállítja magát (mert időközben leállítottuk a futást a UI-ról).
           </div>
         </div>
       </>)}
