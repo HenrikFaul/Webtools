@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { DEFAULT_AGENT_BRIEF_HU } from "@/features/news-scout/server/defaultAgentBrief";
 
 interface TriggerBody {
   force?: boolean;
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     // Read config: webhook URL, lookback, engines, max concurrent
     const { data: cfg } = await db
       .from("news_scout_config")
-      .select("webhook_url, lookback_days, search_engines, max_concurrent_runs, watchdog_timeout_minutes")
+      .select("webhook_url, lookback_days, search_engines, max_concurrent_runs, watchdog_timeout_minutes, notes")
       .limit(1)
       .maybeSingle();
 
@@ -76,6 +77,7 @@ export async function POST(req: Request) {
             lookback_days: cfg.lookback_days ?? 30,
             search_engines: cfg.search_engines ?? ["google", "bing"],
             heartbeat_url: `/api/news-scout/runs/${run.run_id}/heartbeat`,
+            operator_brief_hu: (cfg?.notes && cfg.notes.trim()) || DEFAULT_AGENT_BRIEF_HU,
           }),
           signal: AbortSignal.timeout(10_000),
         });
