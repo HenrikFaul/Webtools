@@ -103,6 +103,7 @@ export function NewsScoutLab() {
   const [cfgLoading, setCfgLoading] = useState(false);
   const [cfgSaving, setCfgSaving] = useState(false);
   const [cfgMsg, setCfgMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [migrationV3Needed, setMigrationV3Needed] = useState(false);
 
   /* ── trigger ─────────────────────────────────────────────────────────────── */
   const [triggering, setTriggering] = useState(false);
@@ -155,7 +156,7 @@ export function NewsScoutLab() {
     setCfgLoading(true);
     try {
       const r = await fetch("/api/news-scout/config");
-      const json = (await r.json()) as NewsScoutConfig & { error?: string };
+      const json = (await r.json()) as NewsScoutConfig & { error?: string; _migration_v3_needed?: boolean };
       if (!r.ok) throw new Error(json.error ?? "Config betöltési hiba");
       setCfg({
         ...json,
@@ -166,6 +167,7 @@ export function NewsScoutLab() {
         max_concurrent_runs: json.max_concurrent_runs ?? 1,
       });
       setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
+      setMigrationV3Needed(Boolean(json._migration_v3_needed));
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
     }
@@ -194,10 +196,11 @@ export function NewsScoutLab() {
           api_keys: apiKeys,
         }),
       });
-      const json = (await r.json()) as NewsScoutConfig & { error?: string };
+      const json = (await r.json()) as NewsScoutConfig & { error?: string; _migration_v3_needed?: boolean };
       if (!r.ok) throw new Error(json.error ?? "Mentési hiba");
       setCfg({ ...json, webhook_url: json.webhook_url ?? "", notes: json.notes ?? "" });
       setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
+      setMigrationV3Needed(Boolean(json._migration_v3_needed));
       setCfgMsg({ ok: true, text: "Konfiguráció mentve." });
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
@@ -463,6 +466,19 @@ export function NewsScoutLab() {
            KONFIGURÁCIÓ
       ══════════════════════════════════════════════════════════════════════*/}
       {tab === "config" && (<>
+        {migrationV3Needed && (
+          <div style={{ padding: "12px 16px", borderRadius: 8, background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.4)", display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 700, color: "#f59e0b", marginBottom: 4 }}>V3 adatbázis migráció szükséges</div>
+              <div className="muted" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                Az <code>api_keys</code> oszlop még nem létezik a <code>news_scout_config</code> táblában.<br />
+                Futtasd le a <code>supabase/migrations/news_scout_v3_api_keys.sql</code> fájlt a <strong>geodata Supabase projekt SQL Editorában</strong>, majd töltsd újra az oldalt.<br />
+                <em>Addig a konfiguráció többi mezője mentve lesz, de az API kulcsok nem tárolódnak.</em>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="card">
           <h3 style={{ margin: "0 0 14px" }}>Ütemezés</h3>
           <div className="row two" style={{ alignItems: "center", gap: 12 }}>
