@@ -41,5 +41,12 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
     description: "Turisztikai POI-k beszerzése Geoapify és TomTom API-ról, ország+kategória szűréssel, ellenőrzéssel, és egyesített címtáblába töltéssel.",
     href: "/tools/geodata",
     status: "ready"
+  },
+  {
+    slug: "news-scout",
+    title: "Hírfelderítő Motor",
+    description: "Magyarországi közérdekű hírforrás-csatornák folyamatos felfedezése és naplózása – settlement-szintű forrásregiszter, keresőmotor-konfiguráció, ütemezés és futásnapló.",
+    href: "/tools/news-scout",
+    status: "ready"
   }
 ];
