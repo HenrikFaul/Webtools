@@ -564,6 +564,13 @@ export function NewsScoutLab() {
                   "Paraméterek: q=<lekérdezés>&count=1",
                   "Header: Ocp-Apim-Subscription-Key: <bing_api_key>",
                 ],
+                custom: [
+                  "Módszer: GET vagy POST (custom_search_method)",
+                  "URL: <custom_search_url>",
+                  "GET esetén: q=<lekérdezés>",
+                  'POST esetén body: {"q":"<lekérdezés>","query":"<lekérdezés>"}',
+                  "Opcionális API kulcs: headerben (custom_search_api_key_header) vagy query-ben (custom_search_api_key_query_param)",
+                ],
                 duckduckgo: [
                   "Módszer: GET",
                   "URL: https://www.searchapi.io/api/v1/search",
@@ -637,7 +644,7 @@ export function NewsScoutLab() {
                       <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <span style={{ fontSize: 11, color: "#9baacf", fontWeight: 500 }}>{field.label}</span>
                         <input
-                          type="password"
+                          type={field.key.includes("url") || field.key.includes("method") ? "text" : "password"}
                           autoComplete="off"
                           value={apiKeys[field.key] ?? ""}
                           onChange={(e) => setApiKeys((prev) => ({ ...prev, [field.key]: e.target.value }))}

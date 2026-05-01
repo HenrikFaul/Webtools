@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { NewsScoutConfigSaveRequest } from "@/types/newsScout";
+import { DEFAULT_AGENT_BRIEF_HU } from "@/features/news-scout/server/defaultAgentBrief";
 
 function isApiKeysColumnMissing(msg: string) {
   return msg.includes("api_keys") && (msg.includes("schema cache") || msg.includes("column"));
@@ -43,7 +44,7 @@ export async function GET() {
         search_engines: ["google", "bing"],
         lookback_days: 30,
         webhook_url: null,
-        notes: null,
+        notes: DEFAULT_AGENT_BRIEF_HU,
         watchdog_timeout_minutes: 15,
         max_concurrent_runs: 1,
         api_keys: {},
@@ -55,6 +56,7 @@ export async function GET() {
     return NextResponse.json({
       ...data,
       search_engines: Array.isArray(data.search_engines) ? data.search_engines : ["google", "bing"],
+      notes: data.notes ?? DEFAULT_AGENT_BRIEF_HU,
       api_keys: (data.api_keys && typeof data.api_keys === "object") ? data.api_keys : {},
     });
   } catch (err) {

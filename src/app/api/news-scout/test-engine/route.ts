@@ -21,6 +21,64 @@ interface TestResult {
   error?: string;
 }
 
+async function testCustom(keys: Record<string, string>, query: string): Promise<TestResult> {
+  const endpoint = (keys["custom_search_url"] ?? "").trim();
+  if (!endpoint) {
+    return { ok: false, http_status: 400, result_count: 0, error: "Hiányzó custom_search_url" };
+  }
+
+  const method = ((keys["custom_search_method"] ?? "GET").toUpperCase() === "POST") ? "POST" : "GET";
+  const apiKey = (keys["custom_search_api_key"] ?? "").trim();
+  const apiKeyHeader = (keys["custom_search_api_key_header"] ?? "").trim();
+  const apiKeyQueryParam = (keys["custom_search_api_key_query_param"] ?? "").trim();
+
+  const url = new URL(endpoint);
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (apiKey && apiKeyHeader) headers[apiKeyHeader] = apiKey;
+  if (apiKey && apiKeyQueryParam) url.searchParams.set(apiKeyQueryParam, apiKey);
+
+  let res: Response;
+  if (method === "POST") {
+    headers["Content-Type"] = "application/json";
+    res = await fetch(url.toString(), {
+      method,
+      headers,
+      body: JSON.stringify({ q: query, query }),
+      signal: AbortSignal.timeout(15_000),
+    });
+  } else {
+    url.searchParams.set("q", query);
+    res = await fetch(url.toString(), { method, headers, signal: AbortSignal.timeout(15_000) });
+  }
+
+  const http_status = res.status;
+  if (!res.ok) {
+    const body = await res.text();
+    return { ok: false, http_status, result_count: 0, error: body.slice(0, 300) };
+  }
+  const text = await res.text();
+  let result_count = 1;
+  let sample_url: string | undefined;
+  try {
+    const data = JSON.parse(text) as Record<string, unknown>;
+    const candidates = [
+      data["items"], data["results"], data["organic"], data["organic_results"], data["webPages"],
+    ];
+    for (const c of candidates) {
+      if (Array.isArray(c)) {
+        result_count = c.length;
+        const first = c[0] as Record<string, unknown> | undefined;
+        if (first && typeof first["link"] === "string") sample_url = first["link"];
+        else if (first && typeof first["url"] === "string") sample_url = first["url"];
+        break;
+      }
+    }
+  } catch {
+    result_count = text.length > 0 ? 1 : 0;
+  }
+  return { ok: true, http_status, result_count, sample_url };
+}
+
 async function testGoogle(apiKey: string, cx: string, query: string): Promise<TestResult> {
   const url = new URL("https://www.googleapis.com/customsearch/v1");
   url.searchParams.set("q", query);
@@ -206,6 +264,12 @@ export async function POST(req: Request) {
           if (!apiKey) return NextResponse.json({ error: "Hiányzó API key: serpapi_key szükséges", endpoint_url: "https://serpapi.com/search?engine=google&q=...&api_key=..." }, { status: 400 });
           endpoint_url = `https://serpapi.com/search?engine=google&q=${encodeURIComponent(query)}&api_key=...&num=1`;
           result = await testSerpApi(apiKey, query);
+          break;
+        }
+        case "custom": {
+          endpoint_url = keys["custom_search_url"] ?? "";
+          endpoint_method = ((keys["custom_search_method"] ?? "GET").toUpperCase() === "POST") ? "POST" : "GET";
+          result = await testCustom(keys, query);
           break;
         }
         default:
