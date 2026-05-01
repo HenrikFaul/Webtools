@@ -218,6 +218,18 @@ export const SEARCH_ENGINES: SearchEngineDefinition[] = [
     ],
   },
   {
+    id: "custom",
+    label: "Saját keresőmotor (Custom HTTP)",
+    description: "Saját endpoint GET/POST hívással – URL kötelező, API kulcs opcionális",
+    keyFields: [
+      { key: "custom_search_url", label: "Kereső endpoint URL", placeholder: "https://example.com/search" },
+      { key: "custom_search_method", label: "HTTP metódus (GET|POST)", placeholder: "GET" },
+      { key: "custom_search_api_key", label: "API kulcs (opcionális)", placeholder: "xxxxxxxx" },
+      { key: "custom_search_api_key_header", label: "API kulcs header neve", placeholder: "Authorization" },
+      { key: "custom_search_api_key_query_param", label: "API kulcs query param neve", placeholder: "api_key" },
+    ],
+  },
+  {
     id: "duckduckgo",
     label: "DuckDuckGo (SearchAPI.io)",
     description: "SearchAPI.io DuckDuckGo engine – searchapi_key szükséges",
