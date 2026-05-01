@@ -1,18 +1,53 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
-export async function POST() {
+interface TriggerBody {
+  force?: boolean;
+}
+
+export async function POST(req: Request) {
   try {
+    let body: TriggerBody = {};
+    try {
+      body = (await req.json()) as TriggerBody;
+    } catch {
+      // empty body OK
+    }
+
     const db = getSupabaseAdmin();
 
-    // Read webhook URL from config
+    // Read config: webhook URL, lookback, engines, max concurrent
     const { data: cfg } = await db
       .from("news_scout_config")
-      .select("webhook_url, lookback_days, search_engines")
+      .select("webhook_url, lookback_days, search_engines, max_concurrent_runs, watchdog_timeout_minutes")
       .limit(1)
       .maybeSingle();
 
-    // Create a queued run record
+    const maxConcurrent = cfg?.max_concurrent_runs ?? 1;
+
+    // Guard: check for already active runs
+    if (!body.force) {
+      const { data: activeRuns, error: activeErr } = await db
+        .from("news_scan_runs")
+        .select("run_id, status, started_at, progress_processed, progress_total")
+        .in("status", ["queued", "running"])
+        .order("started_at", { ascending: false });
+
+      if (activeErr) return NextResponse.json({ error: activeErr.message }, { status: 500 });
+
+      if ((activeRuns ?? []).length >= maxConcurrent) {
+        return NextResponse.json(
+          {
+            error: "already_active",
+            message: `Már van ${activeRuns!.length} aktív futás (max: ${maxConcurrent}). Előbb állítsd le, vagy használd a force=true opciót.`,
+            active_runs: activeRuns,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    // Create the run record
     const { data: run, error: runErr } = await db
       .from("news_scan_runs")
       .insert({
@@ -23,10 +58,9 @@ export async function POST() {
       .select("run_id, status, started_at")
       .single();
 
-    if (runErr) {
-      return NextResponse.json({ error: runErr.message }, { status: 500 });
-    }
+    if (runErr) return NextResponse.json({ error: runErr.message }, { status: 500 });
 
+    // Call webhook if configured
     let webhook_called = false;
     let webhook_error: string | undefined;
 
@@ -40,6 +74,7 @@ export async function POST() {
             trigger_type: "manual",
             lookback_days: cfg.lookback_days ?? 30,
             search_engines: cfg.search_engines ?? ["google", "bing"],
+            heartbeat_url: `/api/news-scout/runs/${run.run_id}/heartbeat`,
           }),
           signal: AbortSignal.timeout(10_000),
         });

@@ -23,6 +23,8 @@ export async function GET() {
         lookback_days: 30,
         webhook_url: null,
         notes: null,
+        watchdog_timeout_minutes: 15,
+        max_concurrent_runs: 1,
         updated_at: null,
         created_at: null,
       });
@@ -72,6 +74,8 @@ export async function POST(req: Request) {
       lookback_days: body.lookback_days,
       webhook_url: body.webhook_url ?? null,
       notes: body.notes ?? null,
+      watchdog_timeout_minutes: body.watchdog_timeout_minutes ?? 15,
+      max_concurrent_runs: body.max_concurrent_runs ?? 1,
     };
 
     let result;
