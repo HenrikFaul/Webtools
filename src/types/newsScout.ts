@@ -26,6 +26,8 @@ export interface NewsScoutConfig {
   lookback_days: number;
   webhook_url: string | null;
   notes: string | null;
+  watchdog_timeout_minutes: number;
+  max_concurrent_runs: number;
   updated_at: string;
   created_at: string;
 }
@@ -38,6 +40,8 @@ export interface NewsScoutConfigSaveRequest {
   lookback_days: number;
   webhook_url?: string;
   notes?: string;
+  watchdog_timeout_minutes?: number;
+  max_concurrent_runs?: number;
 }
 
 export interface NewsScanRun {
@@ -52,8 +56,26 @@ export interface NewsScanRun {
   status: string;
   notes: string | null;
   trigger_type: string;
+  last_heartbeat_at: string | null;
+  progress_processed: number;
+  progress_total: number;
+  cancelled_at: string | null;
+  error_message: string | null;
   created_at: string;
-  duration_ms?: number;
+  duration_ms?: number | null;
+  silent_minutes?: number | null;
+}
+
+export interface WatchdogResult {
+  checked_at: string;
+  active_runs_found: number;
+  killed: Array<{ run_id: string; was_status: string; reason: string }>;
+  timeout_minutes: number;
+}
+
+export interface ActiveRunsResponse {
+  active_runs: Array<NewsScanRun & { silent_ms: number | null; silent_minutes: number | null }>;
+  checked_at: string;
 }
 
 export interface NewsScanRunsResponse {
