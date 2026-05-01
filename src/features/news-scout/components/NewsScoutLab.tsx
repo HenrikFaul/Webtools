@@ -11,6 +11,7 @@ import type {
   NewsSourceChannel,
   NewsSourceScanLog,
   ScheduleType,
+  TestEngineResponse,
   TriggerRunResponse,
   WatchdogResult,
 } from "@/types/newsScout";
@@ -136,6 +137,10 @@ export function NewsScoutLab() {
   const [browseData, setBrowseData] = useState<NewsScoutTablesResponse | null>(null);
   const [browseLoading, setBrowseLoading] = useState(false);
 
+  /* ── api keys + engine test ──────────────────────────────────────────────── */
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [testResults, setTestResults] = useState<Record<string, (TestEngineResponse & { query?: string }) | "loading">>({});
+
   /* ── migrate ─────────────────────────────────────────────────────────────── */
   const [migrateStatus, setMigrateStatus] = useState<Record<string, boolean> | null>(null);
   const [migrateLoading, setMigrateLoading] = useState(false);
@@ -159,6 +164,7 @@ export function NewsScoutLab() {
         watchdog_timeout_minutes: json.watchdog_timeout_minutes ?? 15,
         max_concurrent_runs: json.max_concurrent_runs ?? 1,
       });
+      setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
     }
@@ -184,11 +190,13 @@ export function NewsScoutLab() {
           notes: cfg.notes || undefined,
           watchdog_timeout_minutes: cfg.watchdog_timeout_minutes ?? 15,
           max_concurrent_runs: cfg.max_concurrent_runs ?? 1,
+          api_keys: apiKeys,
         }),
       });
       const json = (await r.json()) as NewsScoutConfig & { error?: string };
       if (!r.ok) throw new Error(json.error ?? "Mentési hiba");
       setCfg({ ...json, webhook_url: json.webhook_url ?? "", notes: json.notes ?? "" });
+      setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
       setCfgMsg({ ok: true, text: "Konfiguráció mentve." });
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
@@ -202,6 +210,24 @@ export function NewsScoutLab() {
       return { ...prev, search_engines: engines.includes(id) ? engines.filter((e) => e !== id) : [...engines, id] };
     });
   };
+
+  const testEngine = useCallback(async (engineId: string) => {
+    setTestResults((prev) => ({ ...prev, [engineId]: "loading" }));
+    try {
+      const r = await fetch("/api/news-scout/test-engine", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ engine: engineId }),
+      });
+      const json = await r.json() as TestEngineResponse & { query?: string; error?: string };
+      setTestResults((prev) => ({ ...prev, [engineId]: json }));
+    } catch (err) {
+      setTestResults((prev) => ({
+        ...prev,
+        [engineId]: { ok: false, http_status: 0, result_count: 0, error: err instanceof Error ? err.message : "Hiba" },
+      }));
+    }
+  }, []);
 
   /* ════════════════════════════════════════════════════════════════════════════
      Trigger
@@ -481,21 +507,81 @@ export function NewsScoutLab() {
         </div>
 
         <div className="card">
-          <h3 style={{ margin: "0 0 14px" }}>Keresőmotorok</h3>
-          <div style={{ display: "grid", gap: 8 }}>
+          <h3 style={{ margin: "0 0 4px" }}>Keresőmotorok</h3>
+          <p className="muted" style={{ fontSize: 12, margin: "0 0 14px", lineHeight: 1.6 }}>
+            Jelöld be a használni kívánt keresőmotorokat, add meg az API kulcsokat, majd mentsd a konfigurációt. A TEST gomb az adatbázisba mentett kulcsokkal fut.
+          </p>
+          <div style={{ display: "grid", gap: 10 }}>
             {SEARCH_ENGINES.map((eng) => {
               const selected = (cfg.search_engines ?? []).includes(eng.id);
+              const testResult = testResults[eng.id];
+              const isTesting = testResult === "loading";
+              const result = testResult !== "loading" ? testResult : undefined;
               return (
-                <label key={eng.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer", padding: "10px 14px", borderRadius: 8, border: `1px solid ${selected ? "rgba(79,140,255,0.4)" : "#233158"}`, background: selected ? "rgba(79,140,255,0.08)" : "#1a2440", transition: "all 0.15s" }}>
-                  <input type="checkbox" checked={selected} onChange={() => toggleEngine(eng.id)} style={{ width: 16, height: 16, accentColor: "#4f8cff", cursor: "pointer", marginTop: 2, flexShrink: 0 }} />
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: selected ? "#eef3ff" : "#9baacf" }}>{eng.label}</div>
-                    <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{eng.description}</div>
+                <div key={eng.id} style={{ borderRadius: 8, border: `1px solid ${selected ? "rgba(79,140,255,0.4)" : "#233158"}`, background: selected ? "rgba(79,140,255,0.06)" : "#1a2440", transition: "border-color 0.15s, background 0.15s", overflow: "hidden" }}>
+                  {/* Header row */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px" }}>
+                    <input type="checkbox" checked={selected} onChange={() => toggleEngine(eng.id)} style={{ width: 16, height: 16, accentColor: "#4f8cff", cursor: "pointer", marginTop: 3, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 14, color: selected ? "#eef3ff" : "#9baacf" }}>{eng.label}</div>
+                      <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{eng.description}</div>
+                    </div>
+                    <button
+                      onClick={() => void testEngine(eng.id)}
+                      disabled={isTesting}
+                      style={{ width: "auto", padding: "5px 14px", fontSize: 12, background: isTesting ? undefined : "#0f766e", flexShrink: 0, whiteSpace: "nowrap" }}
+                    >
+                      {isTesting ? "…" : "TEST"}
+                    </button>
                   </div>
-                </label>
+
+                  {/* API key fields */}
+                  <div style={{ padding: "0 14px 12px 42px", display: "grid", gap: 8 }}>
+                    {eng.keyFields.map((field) => (
+                      <label key={field.key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span style={{ fontSize: 11, color: "#9baacf", fontWeight: 500 }}>{field.label}</span>
+                        <input
+                          type="password"
+                          autoComplete="off"
+                          value={apiKeys[field.key] ?? ""}
+                          onChange={(e) => setApiKeys((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                          placeholder={field.placeholder ?? ""}
+                          style={{ fontSize: 12, fontFamily: "monospace", padding: "6px 10px" }}
+                        />
+                      </label>
+                    ))}
+
+                    {/* Test result */}
+                    {result && (
+                      <div style={{ marginTop: 4, padding: "8px 12px", borderRadius: 6, background: result.ok ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${result.ok ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, fontSize: 12 }}>
+                        {result.error && !result.ok
+                          ? <span style={{ color: "#ef4444" }}>✗ {result.error}</span>
+                          : <>
+                              <span style={{ color: result.ok ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
+                                {result.ok ? "✓ Sikeres" : "✗ Hiba"}
+                              </span>
+                              <span className="muted" style={{ marginLeft: 8 }}>HTTP {result.http_status}</span>
+                              <span className="muted" style={{ marginLeft: 8 }}>{result.result_count.toLocaleString()} találat</span>
+                              {result.sample_url && (
+                                <div style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  <a href={result.sample_url} target="_blank" rel="noopener noreferrer" style={{ color: "#4f8cff", fontSize: 11 }}>{result.sample_url}</a>
+                                </div>
+                              )}
+                              {"query" in result && result.query && (
+                                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Lekérdezés: <em>{result.query as string}</em></div>
+                              )}
+                            </>
+                        }
+                      </div>
+                    )}
+                  </div>
+                </div>
               );
             })}
           </div>
+          <p className="muted" style={{ fontSize: 12, marginTop: 10, lineHeight: 1.6 }}>
+            Az API kulcsok titkosítatlanul kerülnek az adatbázisba (Supabase RLS védi). Mentés után a TEST gomb a DB-ből olvassa a kulcsot.
+          </p>
         </div>
 
         <div className="card">
@@ -905,7 +991,8 @@ export function NewsScoutLab() {
           </div>
           <div className="muted" style={{ fontSize: 13, lineHeight: 1.8 }}>
             <strong>1.</strong> <code>supabase/migrations/news_scout_tables.sql</code> — alaptáblák, enumok, indexek, triggerek, upsert helper<br />
-            <strong>2.</strong> <code>supabase/migrations/news_scout_v2_watchdog.sql</code> — heartbeat, progress, watchdog oszlopok + DB-oldali watchdog függvény
+            <strong>2.</strong> <code>supabase/migrations/news_scout_v2_watchdog.sql</code> — heartbeat, progress, watchdog oszlopok + DB-oldali watchdog függvény<br />
+            <strong>3.</strong> <code>supabase/migrations/news_scout_v3_api_keys.sql</code> — api_keys JSONB oszlop + javított watchdog (queued futások gyorsabb leállítása)
           </div>
           <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>Futtatandó a <strong>geodata Supabase projekt SQL Editorában</strong>, ebben a sorrendben.</p>
           {showSql && (

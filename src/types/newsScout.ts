@@ -17,6 +17,19 @@ export type NewsScanStatus = "ok" | "no_match" | "error" | "skipped";
 
 export type ScheduleType = "minutes" | "hours" | "days";
 
+export interface SearchEngineKeyField {
+  key: string;
+  label: string;
+  placeholder?: string;
+}
+
+export interface SearchEngineDefinition {
+  id: string;
+  label: string;
+  description: string;
+  keyFields: SearchEngineKeyField[];
+}
+
 export interface NewsScoutConfig {
   id: string;
   schedule_enabled: boolean;
@@ -28,6 +41,7 @@ export interface NewsScoutConfig {
   notes: string | null;
   watchdog_timeout_minutes: number;
   max_concurrent_runs: number;
+  api_keys: Record<string, string>;
   updated_at: string;
   created_at: string;
 }
@@ -42,6 +56,7 @@ export interface NewsScoutConfigSaveRequest {
   notes?: string;
   watchdog_timeout_minutes?: number;
   max_concurrent_runs?: number;
+  api_keys?: Record<string, string>;
 }
 
 export interface NewsScanRun {
@@ -173,38 +188,65 @@ export interface MigrateCheckResponse {
   migration_sql_url: string;
 }
 
-export const SEARCH_ENGINES = [
+export interface TestEngineResponse {
+  ok: boolean;
+  http_status: number;
+  result_count: number;
+  sample_url?: string;
+  error?: string;
+}
+
+export const SEARCH_ENGINES: SearchEngineDefinition[] = [
   {
     id: "google",
     label: "Google Custom Search API",
-    description: "Google JSON API – GOOGLE_API_KEY + GOOGLE_CX szükséges",
+    description: "Google JSON API – API key + Custom Search Engine ID szükséges",
+    keyFields: [
+      { key: "google_api_key", label: "Google API Key", placeholder: "AIzaSy..." },
+      { key: "google_cx", label: "Custom Search Engine ID (CX)", placeholder: "a1b2c3d4e5f6g7h8i" },
+    ],
   },
   {
     id: "bing",
     label: "Bing Web Search API",
-    description: "Microsoft Bing Search v7 – BING_SEARCH_API_KEY szükséges",
+    description: "Microsoft Bing Search v7 – Ocp-Apim-Subscription-Key szükséges",
+    keyFields: [
+      { key: "bing_api_key", label: "Bing API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+    ],
   },
   {
     id: "duckduckgo",
-    label: "DuckDuckGo",
-    description: "Ingyenes, API kulcs nélkül, korlátozott kapacitás",
+    label: "DuckDuckGo (SearchAPI.io)",
+    description: "SearchAPI.io DuckDuckGo engine – searchapi_key szükséges",
+    keyFields: [
+      { key: "searchapi_key", label: "SearchAPI.io API Key", placeholder: "searchapi_..." },
+    ],
   },
   {
     id: "brave",
     label: "Brave Search API",
-    description: "Független index – BRAVE_SEARCH_API_KEY szükséges",
+    description: "Független index – X-Subscription-Token szükséges",
+    keyFields: [
+      { key: "brave_api_key", label: "Brave API Key", placeholder: "BSA..." },
+    ],
   },
   {
     id: "serper",
     label: "Serper.dev",
-    description: "Google-alapú SERP API – SERPER_API_KEY szükséges",
+    description: "Google-alapú SERP API – X-API-KEY szükséges",
+    keyFields: [
+      { key: "serper_api_key", label: "Serper API Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+    ],
   },
   {
     id: "serpapi",
     label: "SerpAPI",
-    description: "Universal SERP – SERPAPI_KEY szükséges",
+    description: "Universal SERP – api_key szükséges",
+    keyFields: [
+      { key: "serpapi_key", label: "SerpAPI Key", placeholder: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" },
+    ],
   },
-] as const;
+];
 
 export const SOURCE_TYPE_LABELS: Record<NewsSourceType, string> = {
   municipality: "Önkormányzat",
