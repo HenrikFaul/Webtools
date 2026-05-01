@@ -139,7 +139,8 @@ export function NewsScoutLab() {
 
   /* ── api keys + engine test ──────────────────────────────────────────────── */
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [testResults, setTestResults] = useState<Record<string, (TestEngineResponse & { query?: string }) | "loading">>({});
+  const [testResults, setTestResults] = useState<Record<string, TestEngineResponse | "loading">>({});
+  const [showEndpointInfo, setShowEndpointInfo] = useState<Record<string, boolean>>({});
 
   /* ── migrate ─────────────────────────────────────────────────────────────── */
   const [migrateStatus, setMigrateStatus] = useState<Record<string, boolean> | null>(null);
@@ -217,9 +218,10 @@ export function NewsScoutLab() {
       const r = await fetch("/api/news-scout/test-engine", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ engine: engineId }),
+        // Send current UI keys so the test works even before saving to DB
+        body: JSON.stringify({ engine: engineId, api_keys: apiKeys }),
       });
-      const json = await r.json() as TestEngineResponse & { query?: string; error?: string };
+      const json = await r.json() as TestEngineResponse;
       setTestResults((prev) => ({ ...prev, [engineId]: json }));
     } catch (err) {
       setTestResults((prev) => ({
@@ -227,7 +229,7 @@ export function NewsScoutLab() {
         [engineId]: { ok: false, http_status: 0, result_count: 0, error: err instanceof Error ? err.message : "Hiba" },
       }));
     }
-  }, []);
+  }, [apiKeys]);
 
   /* ════════════════════════════════════════════════════════════════════════════
      Trigger
@@ -517,23 +519,87 @@ export function NewsScoutLab() {
               const testResult = testResults[eng.id];
               const isTesting = testResult === "loading";
               const result = testResult !== "loading" ? testResult : undefined;
+              const infoOpen = showEndpointInfo[eng.id] ?? false;
+
+              // Build endpoint info for display (no real key values shown)
+              const endpointInfoLines: string[] = {
+                google: [
+                  "Módszer: GET",
+                  "URL: https://www.googleapis.com/customsearch/v1",
+                  "Paraméterek: q=<lekérdezés>&key=<google_api_key>&cx=<google_cx>&num=1",
+                ],
+                bing: [
+                  "Módszer: GET",
+                  "URL: https://api.bing.microsoft.com/v7.0/search",
+                  "Paraméterek: q=<lekérdezés>&count=1",
+                  "Header: Ocp-Apim-Subscription-Key: <bing_api_key>",
+                ],
+                duckduckgo: [
+                  "Módszer: GET",
+                  "URL: https://www.searchapi.io/api/v1/search",
+                  "Paraméterek: engine=duckduckgo&q=<lekérdezés>&api_key=<searchapi_key>",
+                ],
+                brave: [
+                  "Módszer: GET",
+                  "URL: https://api.search.brave.com/res/v1/web/search",
+                  "Paraméterek: q=<lekérdezés>&count=1",
+                  "Header: X-Subscription-Token: <brave_api_key>",
+                  "Header: Accept: application/json",
+                ],
+                serper: [
+                  "Módszer: POST",
+                  "URL: https://google.serper.dev/search",
+                  "Header: X-API-KEY: <serper_api_key>",
+                  'Body: {"q": "<lekérdezés>", "num": 1}',
+                ],
+                serpapi: [
+                  "Módszer: GET",
+                  "URL: https://serpapi.com/search",
+                  "Paraméterek: engine=google&q=<lekérdezés>&api_key=<serpapi_key>&num=1",
+                ],
+              }[eng.id] ?? ["Ismeretlen engine"];
+
               return (
                 <div key={eng.id} style={{ borderRadius: 8, border: `1px solid ${selected ? "rgba(79,140,255,0.4)" : "#233158"}`, background: selected ? "rgba(79,140,255,0.06)" : "#1a2440", transition: "border-color 0.15s, background 0.15s", overflow: "hidden" }}>
                   {/* Header row */}
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 14px" }}>
                     <input type="checkbox" checked={selected} onChange={() => toggleEngine(eng.id)} style={{ width: 16, height: 16, accentColor: "#4f8cff", cursor: "pointer", marginTop: 3, flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 14, color: selected ? "#eef3ff" : "#9baacf" }}>{eng.label}</div>
                       <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>{eng.description}</div>
                     </div>
-                    <button
-                      onClick={() => void testEngine(eng.id)}
-                      disabled={isTesting}
-                      style={{ width: "auto", padding: "5px 14px", fontSize: 12, background: isTesting ? undefined : "#0f766e", flexShrink: 0, whiteSpace: "nowrap" }}
-                    >
-                      {isTesting ? "…" : "TEST"}
-                    </button>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button
+                        onClick={() => setShowEndpointInfo((prev) => ({ ...prev, [eng.id]: !infoOpen }))}
+                        title="Végpont info"
+                        style={{ width: "auto", padding: "5px 10px", fontSize: 12, background: infoOpen ? "#1e3a5f" : "#1a2440", border: `1px solid ${infoOpen ? "#4f8cff" : "#2d3f6b"}`, color: infoOpen ? "#4f8cff" : "#9baacf" }}
+                      >
+                        {infoOpen ? "▲ URL" : "▼ URL"}
+                      </button>
+                      <button
+                        onClick={() => void testEngine(eng.id)}
+                        disabled={isTesting}
+                        style={{ width: "auto", padding: "5px 14px", fontSize: 12, background: isTesting ? undefined : "#0f766e", whiteSpace: "nowrap" }}
+                      >
+                        {isTesting ? "…" : "TEST"}
+                      </button>
+                    </div>
                   </div>
+
+                  {/* Endpoint info dropdown */}
+                  {infoOpen && (
+                    <div style={{ margin: "0 14px 10px 42px", padding: "10px 12px", borderRadius: 6, background: "#0b1020", border: "1px solid #2d3f6b", fontSize: 11, fontFamily: "monospace", lineHeight: 1.8 }}>
+                      <div style={{ color: "#4f8cff", fontWeight: 700, marginBottom: 4, fontFamily: "inherit", fontSize: 12 }}>Végpont részletei</div>
+                      {endpointInfoLines.map((line, i) => (
+                        <div key={i} style={{ color: "#9baacf" }}>{line}</div>
+                      ))}
+                      {result?.endpoint_url && (
+                        <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid #2d3f6b", color: "#22c55e" }}>
+                          Utolsó hívott URL: {result.endpoint_url}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* API key fields */}
                   <div style={{ padding: "0 14px 12px 42px", display: "grid", gap: 8 }}>
@@ -554,24 +620,22 @@ export function NewsScoutLab() {
                     {/* Test result */}
                     {result && (
                       <div style={{ marginTop: 4, padding: "8px 12px", borderRadius: 6, background: result.ok ? "rgba(34,197,94,0.08)" : "rgba(239,68,68,0.08)", border: `1px solid ${result.ok ? "rgba(34,197,94,0.25)" : "rgba(239,68,68,0.25)"}`, fontSize: 12 }}>
-                        {result.error && !result.ok
-                          ? <span style={{ color: "#ef4444" }}>✗ {result.error}</span>
-                          : <>
-                              <span style={{ color: result.ok ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
-                                {result.ok ? "✓ Sikeres" : "✗ Hiba"}
-                              </span>
-                              <span className="muted" style={{ marginLeft: 8 }}>HTTP {result.http_status}</span>
-                              <span className="muted" style={{ marginLeft: 8 }}>{result.result_count.toLocaleString()} találat</span>
-                              {result.sample_url && (
-                                <div style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  <a href={result.sample_url} target="_blank" rel="noopener noreferrer" style={{ color: "#4f8cff", fontSize: 11 }}>{result.sample_url}</a>
-                                </div>
-                              )}
-                              {"query" in result && result.query && (
-                                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>Lekérdezés: <em>{result.query as string}</em></div>
-                              )}
-                            </>
-                        }
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                          <span style={{ color: result.ok ? "#22c55e" : "#ef4444", fontWeight: 700 }}>
+                            {result.ok ? "✓ Sikeres" : "✗ Hiba"}
+                          </span>
+                          {result.http_status > 0 && <span className="muted">HTTP {result.http_status}</span>}
+                          {result.ok && <span className="muted">{result.result_count.toLocaleString()} találat</span>}
+                          {result.query && <span className="muted" style={{ fontSize: 11 }}>Lekérdezés: <em>{result.query}</em></span>}
+                        </div>
+                        {result.error && (
+                          <div style={{ color: "#ef4444", marginTop: 4, wordBreak: "break-all" }}>{result.error}</div>
+                        )}
+                        {result.sample_url && (
+                          <div style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <a href={result.sample_url} target="_blank" rel="noopener noreferrer" style={{ color: "#4f8cff", fontSize: 11 }}>{result.sample_url}</a>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
