@@ -794,32 +794,44 @@ export function NewsScoutLab() {
 
 // Inline SQL preview shown in migrate tab (abbreviated for readability)
 const SQL_PREVIEW = `-- Teljes SQL: supabase/migrations/news_scout_tables.sql
+-- Fontos: a location_registry egyediségét CREATE UNIQUE INDEX oldja meg
+-- (coalesce kifejezéssel), mert PostgreSQL CREATE TABLE UNIQUE clausejában
+-- nem lehet függvényt / kifejezést használni.
 
 create extension if not exists pgcrypto;
 
-create type public.news_source_type as enum (
-  'municipality','police','healthcare','utility','gazette_legal',
-  'eu_funding','local_news','regional_news','authority','transport',
-  'disaster_management','education_public','other_public_interest'
-);
+-- Enumok (csak ha még nem léteznek)
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'news_source_type') then
+    create type public.news_source_type as enum (
+      'municipality','police','healthcare','utility','gazette_legal',
+      'eu_funding','local_news','regional_news','authority','transport',
+      'disaster_management','education_public','other_public_interest'
+    );
+  end if;
+end$$;
 
-create type public.news_scan_status as enum (
-  'ok','no_match','error','skipped'
-);
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'news_scan_status') then
+    create type public.news_scan_status as enum (
+      'ok','no_match','error','skipped'
+    );
+  end if;
+end$$;
 
 create table if not exists public.news_scan_runs (
-  run_id            uuid primary key default gen_random_uuid(),
-  started_at        timestamptz not null default now(),
-  finished_at       timestamptz,
-  scope_description text,
-  total_locations   integer not null default 0,
+  run_id                      uuid primary key default gen_random_uuid(),
+  started_at                  timestamptz not null default now(),
+  finished_at                 timestamptz,
+  scope_description           text,
+  total_locations             integer not null default 0,
   total_known_sources_checked integer not null default 0,
   total_new_sources_found     integer not null default 0,
   total_sources_with_matches  integer not null default 0,
-  status            text not null default 'queued',
-  trigger_type      text not null default 'manual',
-  notes             text,
-  created_at        timestamptz not null default now()
+  status                      text not null default 'queued',
+  trigger_type                text not null default 'manual',
+  notes                       text,
+  created_at                  timestamptz not null default now()
 );
 
 create table if not exists public.news_source_channels (
@@ -839,22 +851,27 @@ create table if not exists public.news_source_channels (
   last_seen_at              timestamptz not null default now(),
   last_match_at             timestamptz,
   active                    boolean not null default true,
-  confidence_score          numeric(4,3) not null default 0.500,
+  confidence_score          numeric(4,3) not null default 0.500
+    check (confidence_score between 0 and 1),
   notes                     text,
   metadata                  jsonb not null default '{}',
   created_at                timestamptz not null default now(),
   updated_at                timestamptz not null default now(),
-  unique (city, postcode, canonical_source_base_url)
+  -- egyszerű oszlop alapú unique: CREATE TABLE-ben is működik
+  constraint news_source_channels_unique_channel
+    unique (city, postcode, canonical_source_base_url)
 );
 
 create table if not exists public.news_source_scan_log (
   id                        uuid primary key default gen_random_uuid(),
-  run_id                    uuid not null references public.news_scan_runs(run_id) on delete cascade,
+  run_id                    uuid not null
+    references public.news_scan_runs(run_id) on delete cascade,
   scanned_at                timestamptz not null default now(),
   county_name               text,
   city                      text not null,
   postcode                  text not null,
-  source_channel_id         uuid references public.news_source_channels(id) on delete set null,
+  source_channel_id         uuid
+    references public.news_source_channels(id) on delete set null,
   source_base_url           text not null,
   canonical_source_base_url text,
   checked_for_last_30_days  boolean not null default true,
@@ -862,7 +879,8 @@ create table if not exists public.news_source_scan_log (
   matched_categories        jsonb not null default '[]',
   match_count_estimate      integer,
   best_evidence_url         text,
-  confidence_score          numeric(4,3) not null default 0.500,
+  confidence_score          numeric(4,3) not null default 0.500
+    check (confidence_score between 0 and 1),
   status                    public.news_scan_status not null default 'ok',
   error_message             text,
   metadata                  jsonb not null default '{}',
@@ -870,31 +888,44 @@ create table if not exists public.news_source_scan_log (
 );
 
 create table if not exists public.location_registry (
-  id              uuid primary key default gen_random_uuid(),
-  county_name     text,
-  city            text not null,
-  postcode        text not null,
-  normalized_city text,
-  district_variant text,
-  search_aliases  jsonb not null default '[]',
-  metadata        jsonb not null default '{}',
-  created_at      timestamptz not null default now(),
-  updated_at      timestamptz not null default now(),
-  unique (city, postcode, coalesce(district_variant, ''))
+  id               uuid primary key default gen_random_uuid(),
+  county_name      text,
+  city             text not null,
+  postcode         text not null,
+  normalized_city  text,
+  district_variant text,   -- NULL = nincs kerületvariáns
+  search_aliases   jsonb not null default '[]',
+  metadata         jsonb not null default '{}',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+  -- NEM rakunk ide UNIQUE clauset, mert kifejezést nem tud kezelni!
 );
+
+-- Kifejezés alapú unique index (csak így lehet coalesce-t használni):
+create unique index if not exists idx_location_registry_unique
+  on public.location_registry (city, postcode, coalesce(district_variant, ''));
 
 create table if not exists public.news_scout_config (
   id               uuid primary key default gen_random_uuid(),
   schedule_enabled boolean not null default false,
-  schedule_type    text not null default 'hours',
+  schedule_type    text not null default 'hours'
+    check (schedule_type in ('minutes','hours','days')),
   schedule_value   integer not null default 6,
   search_engines   jsonb not null default '["google","bing"]',
-  lookback_days    integer not null default 30,
+  lookback_days    integer not null default 30
+    check (lookback_days between 1 and 365),
   webhook_url      text,
   notes            text,
   updated_at       timestamptz not null default now(),
   created_at       timestamptz not null default now()
 );
 
--- (+ indexek, triggerek, upsert helper function)
+-- Default konfig sor – WHERE NOT EXISTS, mert nincs unique constraint
+-- (ON CONFLICT DO NOTHING conflict target nélkül nem működik itt)
+insert into public.news_scout_config
+  (schedule_enabled, schedule_type, schedule_value, search_engines, lookback_days)
+select false, 'hours', 6, '["google","bing"]'::jsonb, 30
+where not exists (select 1 from public.news_scout_config limit 1);
+
+-- (+ indexek, triggerek, normalize_url_for_channel(), upsert_news_source_channel())
 -- Teljes fájl: supabase/migrations/news_scout_tables.sql`;
