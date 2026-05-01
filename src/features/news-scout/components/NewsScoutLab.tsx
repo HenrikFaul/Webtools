@@ -140,8 +140,12 @@ export function NewsScoutLab() {
 
   /* ── api keys + engine test ──────────────────────────────────────────────── */
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const apiKeysRef = useRef<Record<string, string>>({});
   const [testResults, setTestResults] = useState<Record<string, TestEngineResponse | "loading">>({});
   const [showEndpointInfo, setShowEndpointInfo] = useState<Record<string, boolean>>({});
+
+  // Keep ref in sync — guarantees saveConfig/testEngine always see the latest value
+  useEffect(() => { apiKeysRef.current = apiKeys; }, [apiKeys]);
 
   /* ── migrate ─────────────────────────────────────────────────────────────── */
   const [migrateStatus, setMigrateStatus] = useState<Record<string, boolean> | null>(null);
@@ -166,7 +170,9 @@ export function NewsScoutLab() {
         watchdog_timeout_minutes: json.watchdog_timeout_minutes ?? 15,
         max_concurrent_runs: json.max_concurrent_runs ?? 1,
       });
-      setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
+      const loadedKeys = (json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {};
+      setApiKeys(loadedKeys);
+      apiKeysRef.current = loadedKeys;
       setMigrationV3Needed(Boolean(json._migration_v3_needed));
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
@@ -179,6 +185,8 @@ export function NewsScoutLab() {
   const saveConfig = useCallback(async () => {
     setCfgSaving(true);
     setCfgMsg(null);
+    // Use ref to guarantee latest apiKeys — avoids stale closure on [cfg] deps
+    const currentApiKeys = apiKeysRef.current;
     try {
       const r = await fetch("/api/news-scout/config", {
         method: "POST",
@@ -193,14 +201,19 @@ export function NewsScoutLab() {
           notes: cfg.notes || undefined,
           watchdog_timeout_minutes: cfg.watchdog_timeout_minutes ?? 15,
           max_concurrent_runs: cfg.max_concurrent_runs ?? 1,
-          api_keys: apiKeys,
+          api_keys: currentApiKeys,
         }),
       });
       const json = (await r.json()) as NewsScoutConfig & { error?: string; _migration_v3_needed?: boolean };
       if (!r.ok) throw new Error(json.error ?? "Mentési hiba");
       setCfg({ ...json, webhook_url: json.webhook_url ?? "", notes: json.notes ?? "" });
-      setApiKeys((json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {});
       setMigrationV3Needed(Boolean(json._migration_v3_needed));
+      // Only update apiKeys from server if the column exists and server returned non-empty keys.
+      // If server returns {}, keep the user's typed values to avoid wiping them.
+      const serverKeys = (json.api_keys && typeof json.api_keys === "object") ? (json.api_keys as Record<string, string>) : {};
+      if (Object.keys(serverKeys).length > 0) {
+        setApiKeys(serverKeys);
+      }
       setCfgMsg({ ok: true, text: "Konfiguráció mentve." });
     } catch (err) {
       setCfgMsg({ ok: false, text: err instanceof Error ? err.message : "Hiba" });
@@ -217,12 +230,13 @@ export function NewsScoutLab() {
 
   const testEngine = useCallback(async (engineId: string) => {
     setTestResults((prev) => ({ ...prev, [engineId]: "loading" }));
+    // Use ref to avoid stale closure — always sends the keys currently visible in the UI
+    const currentApiKeys = apiKeysRef.current;
     try {
       const r = await fetch("/api/news-scout/test-engine", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        // Send current UI keys so the test works even before saving to DB
-        body: JSON.stringify({ engine: engineId, api_keys: apiKeys }),
+        body: JSON.stringify({ engine: engineId, api_keys: currentApiKeys }),
       });
       const json = await r.json() as TestEngineResponse;
       setTestResults((prev) => ({ ...prev, [engineId]: json }));
@@ -232,7 +246,7 @@ export function NewsScoutLab() {
         [engineId]: { ok: false, http_status: 0, result_count: 0, error: err instanceof Error ? err.message : "Hiba" },
       }));
     }
-  }, [apiKeys]);
+  }, []);
 
   /* ════════════════════════════════════════════════════════════════════════════
      Trigger
