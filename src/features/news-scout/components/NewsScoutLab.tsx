@@ -956,6 +956,7 @@ export function NewsScoutLab() {
                     <th style={{ padding: "6px 8px", textAlign: "left" }}>IRSZ</th>
                     <th style={{ padding: "6px 8px", textAlign: "left" }}>Megye</th>
                     <th style={{ padding: "6px 8px", textAlign: "left" }}>URL</th>
+                    <th style={{ padding: "6px 8px", textAlign: "left" }}>RSS Feed</th>
                     <th style={{ padding: "6px 8px", textAlign: "right" }}>Conf.</th>
                     <th style={{ padding: "6px 8px", textAlign: "left" }}>Aktív</th>
                     <th style={{ padding: "6px 8px", textAlign: "left" }}>Utolsó találat</th>
@@ -971,6 +972,11 @@ export function NewsScoutLab() {
                         <td style={{ padding: "6px 8px", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           <a href={row.source_base_url} target="_blank" rel="noopener noreferrer" style={{ color: "#4f8cff", textDecoration: "none", fontSize: 11 }}>{row.source_base_url}</a>
                         </td>
+                        <td style={{ padding: "6px 8px", maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {row.feed_url
+                            ? <a href={row.feed_url} target="_blank" rel="noopener noreferrer" title={row.feed_url} style={{ color: "#f59e0b", textDecoration: "none", fontSize: 11 }}>⬤ RSS</a>
+                            : <span style={{ color: "#374165", fontSize: 11 }}>—</span>}
+                        </td>
                         <td style={{ padding: "6px 8px", textAlign: "right", fontFamily: "monospace" }}>
                           <span style={{ color: row.confidence_score >= 0.9 ? "#22c55e" : row.confidence_score >= 0.7 ? "#f59e0b" : "#ef4444" }}>{Number(row.confidence_score).toFixed(2)}</span>
                         </td>
@@ -978,7 +984,7 @@ export function NewsScoutLab() {
                         <td style={{ padding: "6px 8px", whiteSpace: "nowrap", color: "#9baacf", fontSize: 11 }}>{fmt(row.last_match_at)}</td>
                       </tr>
                     ))}
-                    {browseData.rows.length === 0 && <tr><td colSpan={9} style={{ padding: 20, textAlign: "center", color: "#9baacf" }}>Nincs találat.</td></tr>}
+                    {browseData.rows.length === 0 && <tr><td colSpan={10} style={{ padding: 20, textAlign: "center", color: "#9baacf" }}>Nincs találat.</td></tr>}
                   </tbody>
                 </table>
               )}
