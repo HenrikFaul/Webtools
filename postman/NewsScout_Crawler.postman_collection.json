@@ -1,0 +1,555 @@
+{
+  "info": {
+    "name": "NewsScout – Magyar Közérdekű Hírfelderítő",
+    "description": "Teljes API collection a saját web crawler, seed kezelés, keresés és futtatás végpontokhoz.\n\n**Sorrend az első indításhoz:**\n1. 🏃 Crawler / Run (első futás – seed-ek queue-ba töltése)\n2. 🌱 Seeds / List Seeds (ellenőrzés)\n3. 🔍 Search / Keresés saját indexben\n4. 📊 Crawler / Status\n\n**Environment:** válaszd a `NewsScout – Local / Vercel` environmentet.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "news-scout-collection-v1"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "🏃 Crawler",
+      "description": "Crawler futtatás, seed kezelés és állapot",
+      "item": [
+        {
+          "name": "▶ Run – Crawler batch futtatás",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/crawler/run",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "crawler", "run"]
+            },
+            "description": "**Ezt hívd először!**\n\nEgyetlen hívással:\n1. Ellenőrzi, mely seed-ek esedékesek (crawl_interval_minutes alapján)\n2. Betölti azokat a crawl_queue-ba\n3. Felvesz max 10 URL-t a queue-ból\n4. RSS feed-eket parszol, HTML oldalakat crawlol\n5. Releváns tartalmakat ír a crawl_index-be\n6. Felderített link-eket és RSS feed-eket visszafűzi a queue-ba\n\n**Ismételd hívni** amíg a `queue_items_processed` > 0.\n\nVárt válasz:\n```json\n{\n  \"ok\": true,\n  \"seeds_enqueued\": 70,\n  \"queue_items_processed\": 10,\n  \"stats\": {\n    \"processed\": 10,\n    \"indexed\": 8,\n    \"feeds_found\": 5,\n    \"links_queued\": 23,\n    \"errors\": 1,\n    \"skipped\": 1\n  }\n}\n```"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok: true', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.ok).to.be.true;",
+                  "    console.log('Seeds enqueued:', json.seeds_enqueued);",
+                  "    console.log('Items processed:', json.queue_items_processed);",
+                  "    console.log('Stats:', JSON.stringify(json.stats, null, 2));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "📊 Status – Crawler állapot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/crawler/status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "crawler", "status"]
+            },
+            "description": "Visszaadja:\n- `active_seeds`: aktív kiindulópontok száma\n- `queue_pending/processing/done/failed`: queue állapot\n- `index_total`: összesen indexelt cikk\n- `index_rss_items`: RSS-ből begyűjtött cikkek\n- `indexed_last_24h`: elmúlt 24 órában indexelt\n- `last_crawled_at`: utolsó crawl ideje\n- `top_domains`: legtöbb cikk per domain\n- `top_categories`: legtöbb cikk per kategória"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "console.log('Index mérete:', json.index_total, 'cikk');",
+                  "console.log('Queue (pending):', json.queue_pending);",
+                  "console.log('Top domain:', json.top_domains?.[0]);",
+                  "console.log('Top kategória:', json.top_categories?.[0]);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "🌱 Seeds – Lista",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/crawler/seeds",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "crawler", "seeds"]
+            },
+            "description": "Visszaadja az összes aktív és inaktív seed URL-t.\n\n**Tipp:** másd ki egy seed `id` mezőjét a `seed_id` environment változóba."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "console.log('Seed-ek száma:', json.total);",
+                  "// Az első seed id-jét tegyük az env-be",
+                  "if (json.seeds?.[0]?.id) {",
+                  "    pm.environment.set('seed_id', json.seeds[0].id);",
+                  "    console.log('seed_id beállítva:', json.seeds[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "➕ Seeds – Új seed hozzáadása",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"https://www.miskolc.hu/hirek/rss\",\n  \"source_type\": \"municipality\",\n  \"label\": \"Miskolc MJV – RSS feed\",\n  \"county\": \"Borsod-Abaúj-Zemplén\",\n  \"city\": \"Miskolc\",\n  \"postcode\": \"3500\",\n  \"is_rss\": true,\n  \"crawl_interval_minutes\": 60,\n  \"crawl_depth_limit\": 0,\n  \"active\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/crawler/seeds",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "crawler", "seeds"]
+            },
+            "description": "Új seed URL hozzáadása.\n\n**Mezők:**\n- `url` *(kötelező)*: teljes URL\n- `source_type`: municipality | police | healthcare | utility | gazette_legal | eu_funding | local_news | regional_news | authority | transport | disaster_management | education_public | other_public_interest\n- `is_rss`: `true` ha RSS/Atom feed, `false` ha HTML oldal\n- `crawl_interval_minutes`: milyen sűrűn crawlolja (default: 120)\n- `crawl_depth_limit`: max mélység (0 = csak ez az URL, 1 = + közvetlen linkek, 2 = 2 szint)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "if (json.seed?.id) {",
+                  "    pm.environment.set('seed_id', json.seed.id);",
+                  "    console.log('Új seed ID:', json.seed.id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "🗑 Seeds – Seed deaktiválása",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/crawler/seeds?id={{seed_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "crawler", "seeds"],
+              "query": [
+                { "key": "id", "value": "{{seed_id}}", "description": "Seed UUID (environment: seed_id)" }
+              ]
+            },
+            "description": "Seed soft-delete: `active = false`-ra állítja, nem törli.\n\nÁllítsd be a `seed_id` environment változót a deaktiválandó seed UUID-jére."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('ok: true', () => pm.expect(pm.response.json().ok).to.be.true);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔍 Search – Keresés",
+      "description": "Keresés a saját crawl_index-ben (elsőbbség) és fallback a külső API-kra",
+      "item": [
+        {
+          "name": "Keresés GET – saját index (local_crawler_index)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search?q={{search_query}}&num=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"],
+              "query": [
+                { "key": "q", "value": "{{search_query}}", "description": "Keresési kifejezés (environment: search_query)" },
+                { "key": "num", "value": "10", "description": "Max találatok száma (1–50)" }
+              ]
+            },
+            "description": "Keresési prioritás:\n1. **`local_crawler_index`** — saját crawl_index (ha van találat, ez kerül vissza, SerpAPI NEM hívódik)\n2. `serpapi/google (fallback)` — csak ha a saját index üres\n3. `searchapi/google (fallback)` — következő fallback\n4. `searchapi/bing (fallback)` — utolsó fallback\n\n**`engine_used`** mező mutatja, melyik forrásból jött az eredmény.\n\nVárt válasz saját indexből:\n```json\n{\n  \"query\": \"pécsi közgyűlés határozat\",\n  \"results\": [...],\n  \"result_count\": 7,\n  \"engine_used\": \"local_crawler_index\",\n  \"ok\": true\n}\n```"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "pm.test('ok: true', () => pm.expect(json.ok).to.be.true);",
+                  "console.log('Engine used:', json.engine_used);",
+                  "console.log('Találatok:', json.result_count);",
+                  "if (json.engine_used === 'local_crawler_index') {",
+                  "    console.log('✅ Saját index használva – SerpAPI NEM hívódott meg!');",
+                  "} else {",
+                  "    console.log('⚠️ Fallback engine:', json.engine_used, '– töltsd fel az indexet (Run Crawler)');",
+                  "}",
+                  "json.results?.slice(0, 3).forEach((r, i) => console.log(i+1, r.title, '|', r.link));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Keresés POST – saját index",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"q\": \"{{search_query}}\",\n  \"num\": 10\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"]
+            },
+            "description": "POST változat – az agent (webhook) így hívja. Ugyanaz a logika mint a GET verzióban."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "console.log('Engine:', json.engine_used, '| Találat:', json.result_count);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Keresés – Önkormányzati hírek",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search?q=önkormányzat rendelet határozat&num=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"],
+              "query": [
+                { "key": "q", "value": "önkormányzat rendelet határozat" },
+                { "key": "num", "value": "20" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Keresés – Rendőrségi hírek",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search?q=rendőrség bűncselekmény elfogtak&num=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"],
+              "query": [
+                { "key": "q", "value": "rendőrség bűncselekmény elfogtak" },
+                { "key": "num", "value": "20" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Keresés – EU pályázatok",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search?q=EU pályázat EFOP GINOP fejlesztés&num=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"],
+              "query": [
+                { "key": "q", "value": "EU pályázat EFOP GINOP fejlesztés" },
+                { "key": "num", "value": "20" }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Keresés – Katasztrófavédelem",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/search?q=katasztrófavédelem tűzoltó veszélyhelyzet&num=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "search"],
+              "query": [
+                { "key": "q", "value": "katasztrófavédelem tűzoltó veszélyhelyzet" },
+                { "key": "num", "value": "20" }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "⚡ NewsScout Agent",
+      "description": "Az n8n/webhook agent manuális indítása és futások nyomonkövetése",
+      "item": [
+        {
+          "name": "Trigger – Agent futtatás indítása",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"force\": false\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/trigger",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "trigger"]
+            },
+            "description": "Az n8n webhook agent indítása.\n\n- `force: false` — megtagadja ha már fut egy aktív run (max_concurrent alapján)\n- `force: true` — mindenképp elindít egy új futást\n\nA válasz `run_id`-ját a Tests tab automatikusan beállítja az environment `run_id` változóba."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 vagy 409', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+                  "});",
+                  "const json = pm.response.json();",
+                  "if (json.run_id) {",
+                  "    pm.environment.set('run_id', json.run_id);",
+                  "    console.log('run_id beállítva:', json.run_id);",
+                  "    console.log('Webhook hívva:', json.webhook_called);",
+                  "    if (json.webhook_error) console.warn('Webhook hiba:', json.webhook_error);",
+                  "} else if (json.error === 'already_active') {",
+                  "    console.warn('Már fut:', json.active_runs?.length, 'aktív futás');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trigger – Force indítás (aktív run ellenére)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"force\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/trigger",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "trigger"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Runs – Futások listája",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/runs?page=1&pageSize=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "runs"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json();",
+                  "json.runs?.slice(0, 5).forEach(r => {",
+                  "    console.log(r.status.padEnd(12), r.run_id, r.started_at);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Runs – Aktív futások",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/runs/active",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "runs", "active"]
+            },
+            "description": "Jelenleg futó (queued/running) futások listája."
+          },
+          "response": []
+        },
+        {
+          "name": "Run – Heartbeat ellenőrzés",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"progress_processed\": 10,\n  \"progress_total\": 100\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/runs/{{run_id}}/heartbeat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "runs", "{{run_id}}", "heartbeat"]
+            },
+            "description": "Agent heartbeat küldése — watchdog erre figyel. Állítsd be a `run_id` environment változót."
+          },
+          "response": []
+        },
+        {
+          "name": "Run – Leállítás (cancel)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/runs/{{run_id}}/cancel",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "runs", "{{run_id}}", "cancel"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "⚙️ Konfiguráció",
+      "description": "NewsScout konfigurációs beállítások",
+      "item": [
+        {
+          "name": "Config – Beállítások lekérése",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "config"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Config – Beállítások mentése",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"schedule_enabled\": false,\n  \"schedule_type\": \"hours\",\n  \"schedule_value\": 6,\n  \"search_engines\": [\"custom\"],\n  \"lookback_days\": 30,\n  \"webhook_url\": \"https://your-n8n-instance.com/webhook/news-scout\",\n  \"notes\": \"Magyar közérdekű hírfelderítő agent\",\n  \"watchdog_timeout_minutes\": 30,\n  \"max_concurrent_runs\": 1,\n  \"api_keys\": {\n    \"custom_search_url\": \"{{base_url}}/api/news-scout/search\",\n    \"custom_search_method\": \"GET\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "config"]
+            },
+            "description": "**Fontos:** a `custom_search_url`-ben a saját `/api/news-scout/search` endpoint szerepeljen.\n\nEz az endpoint most már a saját `crawl_index`-et kérdezi le elsőként — az agent automatikusan a saját keresőmotort fogja használni."
+          },
+          "response": []
+        },
+        {
+          "name": "Watchdog – Lefagyott futások leállítása",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/watchdog",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "watchdog"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Migrate – Táblák ellenőrzése",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/news-scout/migrate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "news-scout", "migrate"]
+            },
+            "description": "Ellenőrzi, hogy az összes szükséges Supabase tábla létezik-e."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
