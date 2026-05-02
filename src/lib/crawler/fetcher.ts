@@ -1,7 +1,7 @@
 // HTTP fetcher rate limiting-gel és robots.txt figyelemmel
 // Magyaroszági hírfelderítő crawler számára
 
-const USER_AGENT = 'HungarianNewsScout/1.0 (közérdekű hírfelderítő; +https://github.com/henrikfaul/webtools)';
+const USER_AGENT = 'HungarianNewsScout/1.0 (kozerdeku hirfelderito; +https://github.com/henrikfaul/webtools)';
 const FETCH_TIMEOUT_MS = 15_000;
 const MIN_DELAY_MS = 1_500; // minimum 1,5 másodperc domainenként
 
