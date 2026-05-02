@@ -75,7 +75,7 @@ async function processRssFeed(
 ): Promise<void> {
   const result = await fetchUrl(url);
   if (!result.ok) {
-    throw new Error(`HTML fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
+    throw new Error(`RSS fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
   }
 
   const feed = parseFeed(result.body);
@@ -153,7 +153,7 @@ async function processHtmlPage(
 
   const result = await fetchUrl(url);
   if (!result.ok) {
-    throw new Error(`RSS fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
+    throw new Error(`HTML fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
   }
 
   // Ha feed-et kaptunk vissza, kezeljük feed-ként
