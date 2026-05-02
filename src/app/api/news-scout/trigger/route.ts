@@ -17,10 +17,10 @@ export async function POST(req: Request) {
 
     const db = getSupabaseAdmin();
 
-    // Read config: webhook URL, lookback, engines, max concurrent
+    // Read config: webhook URL, lookback, engines, max concurrent, api_keys for proxy URL
     const { data: cfg } = await db
       .from("news_scout_config")
-      .select("webhook_url, lookback_days, search_engines, max_concurrent_runs, watchdog_timeout_minutes, notes")
+      .select("webhook_url, lookback_days, search_engines, max_concurrent_runs, watchdog_timeout_minutes, notes, api_keys")
       .limit(1)
       .maybeSingle();
 
@@ -76,6 +76,9 @@ export async function POST(req: Request) {
             trigger_type: "manual",
             lookback_days: cfg.lookback_days ?? 30,
             search_engines: cfg.search_engines ?? ["google", "bing"],
+            // Custom search engine settings — URL points to the app's own proxy endpoint.
+            // The proxy internally handles all backend API keys; only the URL is exposed here.
+            custom_search_engine: buildCustomEnginePayload(cfg.api_keys as Record<string, string> | null),
             heartbeat_url: `/api/news-scout/runs/${run.run_id}/heartbeat`,
             operator_brief_hu: (cfg?.notes && cfg.notes.trim()) || DEFAULT_AGENT_BRIEF_HU,
           }),
@@ -103,4 +106,16 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+// Builds the custom_search_engine block for the webhook payload.
+// Only exposes URL + method — backend API keys stay inside the proxy.
+function buildCustomEnginePayload(apiKeys: Record<string, string> | null): {
+  url: string | null;
+  method: string;
+} {
+  const keys = apiKeys ?? {};
+  const url = (keys["custom_search_url"] ?? "").trim() || null;
+  const method = ((keys["custom_search_method"] ?? "GET").toUpperCase() === "POST") ? "POST" : "GET";
+  return { url, method };
 }
