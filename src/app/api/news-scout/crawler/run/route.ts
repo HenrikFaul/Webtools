@@ -44,7 +44,7 @@ async function enqueueDueSeeds(db: ReturnType<typeof getSupabaseAdmin>): Promise
     const intervalMs = (seed.crawl_interval_minutes ?? 120) * 60_000;
     if (now - lastMs < intervalMs) continue;
 
-    await db.from("crawl_queue").upsert(
+    const { error: enqueueErr } = await db.from("crawl_queue").upsert(
       {
         url: seed.url,
         domain: seed.domain,
@@ -57,6 +57,9 @@ async function enqueueDueSeeds(db: ReturnType<typeof getSupabaseAdmin>): Promise
       },
       { onConflict: "url", ignoreDuplicates: true }
     );
+    if (enqueueErr) {
+      throw new Error(`crawl_queue seed upsert failed for ${seed.url}: ${enqueueErr.message}`);
+    }
     enqueued++;
   }
 
@@ -72,8 +75,7 @@ async function processRssFeed(
 ): Promise<void> {
   const result = await fetchUrl(url);
   if (!result.ok) {
-    stats.errors++;
-    return;
+    throw new Error(`RSS fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
   }
 
   const feed = parseFeed(result.body);
@@ -100,7 +102,7 @@ async function processRssFeed(
     const categories = detectCategories(text);
     const relevance = scoreRelevance(text);
 
-    await db.from("crawl_index").upsert(
+    const { error: upsertErr } = await db.from("crawl_index").upsert(
       {
         url: item.link,
         canonical_url: canonical,
@@ -117,6 +119,10 @@ async function processRssFeed(
       },
       { onConflict: "canonical_url" }
     );
+
+    if (upsertErr) {
+      throw new Error(`crawl_index upsert failed for ${item.link}: ${upsertErr.message}`);
+    }
 
     stats.indexed++;
   }
@@ -147,8 +153,7 @@ async function processHtmlPage(
 
   const result = await fetchUrl(url);
   if (!result.ok) {
-    stats.errors++;
-    return;
+    throw new Error(`HTML fetch failed (${result.status}) for ${url}: ${result.error ?? "HTTP error"}`);
   }
 
   // Ha feed-et kaptunk vissza, kezeljük feed-ként
@@ -164,7 +169,7 @@ async function processHtmlPage(
   for (const feedUrl of page.feedUrls) {
     const canonical = canonicalizeUrl(feedUrl);
     if (!canonical) continue;
-    await db.from("crawl_queue").upsert(
+    const { error: queueFeedErr } = await db.from("crawl_queue").upsert(
       {
         url: feedUrl,
         domain: extractDomain(feedUrl),
@@ -178,6 +183,9 @@ async function processHtmlPage(
       },
       { onConflict: "url", ignoreDuplicates: true }
     );
+    if (queueFeedErr) {
+      throw new Error(`crawl_queue upsert failed for feed ${feedUrl}: ${queueFeedErr.message}`);
+    }
     stats.links_queued++;
   }
 
@@ -188,7 +196,7 @@ async function processHtmlPage(
       const categories = detectCategories(text);
       const relevance = scoreRelevance(text);
 
-      await db.from("crawl_index").upsert(
+      const { error: pageUpsertErr } = await db.from("crawl_index").upsert(
         {
           url,
           canonical_url: canonical,
@@ -204,6 +212,9 @@ async function processHtmlPage(
         },
         { onConflict: "canonical_url" }
       );
+      if (pageUpsertErr) {
+        throw new Error(`crawl_index upsert failed for ${url}: ${pageUpsertErr.message}`);
+      }
       stats.indexed++;
     }
   } else {
@@ -219,7 +230,7 @@ async function processHtmlPage(
       if (!shouldCrawl(resolved, domain, depth + 1, MAX_LINK_DEPTH)) continue;
       const linkDomain = extractDomain(resolved);
 
-      await db.from("crawl_queue").upsert(
+      const { error: queueLinkErr } = await db.from("crawl_queue").upsert(
         {
           url: resolved,
           domain: linkDomain,
@@ -233,6 +244,9 @@ async function processHtmlPage(
         },
         { onConflict: "url", ignoreDuplicates: true }
       );
+      if (queueLinkErr) {
+        throw new Error(`crawl_queue upsert failed for link ${resolved}: ${queueLinkErr.message}`);
+      }
       stats.links_queued++;
       linkCount++;
     }
@@ -267,6 +281,7 @@ export async function POST(): Promise<NextResponse> {
 
     const items = queueItems ?? [];
     const stats: CrawlStats = { processed: 0, indexed: 0, feeds_found: 0, links_queued: 0, errors: 0, skipped: 0 };
+    const recentErrors: string[] = [];
 
     // 3. URL-ek feldolgozása
     for (const item of items) {
@@ -289,11 +304,13 @@ export async function POST(): Promise<NextResponse> {
           finished_at: new Date().toISOString(),
         }).eq("id", item.id);
       } catch (err) {
+        const message = err instanceof Error ? err.message : "Ismeretlen hiba";
         await db.from("crawl_queue").update({
           status: "failed",
           finished_at: new Date().toISOString(),
-          error_message: err instanceof Error ? err.message : "Ismeretlen hiba",
+          error_message: message,
         }).eq("id", item.id);
+        if (recentErrors.length < 10) recentErrors.push(`${item.url}: ${message}`);
         stats.errors++;
       }
 
@@ -305,6 +322,7 @@ export async function POST(): Promise<NextResponse> {
       seeds_enqueued: enqueued,
       queue_items_processed: items.length,
       stats,
+      recent_errors: recentErrors,
     });
   } catch (err) {
     return NextResponse.json(
