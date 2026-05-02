@@ -36,34 +36,47 @@ async function enqueueDueSeeds(db: ReturnType<typeof getSupabaseAdmin>): Promise
 
   if (!seeds?.length) return 0;
 
-  let enqueued = 0;
   const now = Date.now();
+  const dueSeeds: typeof seeds = [];
 
   for (const seed of seeds) {
     const lastMs = seed.last_crawled_at ? new Date(seed.last_crawled_at).getTime() : 0;
     const intervalMs = (seed.crawl_interval_minutes ?? 120) * 60_000;
     if (now - lastMs < intervalMs) continue;
-
-    const { error: enqueueErr } = await db.from("crawl_queue").upsert(
-      {
-        url: seed.url,
-        domain: seed.domain,
-        seed_id: seed.id,
-        depth: 0,
-        is_rss: seed.is_rss,
-        priority: seed.is_rss ? 1 : 3,
-        status: "pending",
-        scheduled_at: new Date().toISOString(),
-      },
-      { onConflict: "url", ignoreDuplicates: true }
-    );
-    if (enqueueErr) {
-      throw new Error(`crawl_queue seed upsert failed for ${seed.url}: ${enqueueErr.message}`);
-    }
-    enqueued++;
+    dueSeeds.push(seed);
   }
 
-  return enqueued;
+  if (!dueSeeds.length) return 0;
+
+  const scheduledAt = new Date().toISOString();
+  const rows = dueSeeds.map((seed) => ({
+    url: seed.url,
+    domain: seed.domain,
+    seed_id: seed.id,
+    depth: 0,
+    is_rss: seed.is_rss,
+    priority: seed.is_rss ? 1 : 3,
+    status: "pending",
+    scheduled_at: scheduledAt,
+  }));
+
+  // Új elemek beillesztése (már várakozók érintetlenül maradnak)
+  const { error: insertErr } = await db
+    .from("crawl_queue")
+    .upsert(rows, { onConflict: "url", ignoreDuplicates: true });
+  if (insertErr) {
+    throw new Error(`crawl_queue bulk upsert failed: ${insertErr.message}`);
+  }
+
+  // Korábban hibás elemek visszaállítása "pending"-re, ha az intervallum lejárt
+  const dueUrls = dueSeeds.map((s) => s.url);
+  await db
+    .from("crawl_queue")
+    .update({ status: "pending", scheduled_at: scheduledAt, error_message: null, attempts: 0 })
+    .in("url", dueUrls)
+    .eq("status", "failed");
+
+  return dueSeeds.length;
 }
 
 // ── Egy RSS feed feldolgozása ──────────────────────────────────────────────
