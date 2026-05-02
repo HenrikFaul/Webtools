@@ -111,6 +111,7 @@ export interface NewsSourceChannel {
   source_base_url: string;
   canonical_source_base_url: string;
   source_search_url: string | null;
+  feed_url: string | null;
   categories_supported: string[];
   discovery_method: string | null;
   first_seen_at: string;
