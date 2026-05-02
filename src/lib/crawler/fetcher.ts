@@ -1,9 +1,9 @@
 // HTTP fetcher rate limiting-gel és robots.txt figyelemmel
 // Magyaroszági hírfelderítő crawler számára
 
-const USER_AGENT = 'HungarianNewsScout/1.0 (közérdekű hírfelderítő; +https://github.com/henrikfaul/webtools)';
-const FETCH_TIMEOUT_MS = 15_000;
-const MIN_DELAY_MS = 1_500; // minimum 1,5 másodperc domainenként
+const USER_AGENT = 'Mozilla/5.0 (compatible; HungarianNewsScout/1.0; +https://github.com/henrikfaul/webtools)';
+const FETCH_TIMEOUT_MS = 8_000;   // Vercel serverless-barát timeout
+const MIN_DELAY_MS = 300;          // serverless: kis delay, mert minden kérés új process
 
 // Domain-szintű rate limit (memóriában — csak egy request-en belül)
 const domainLastFetch: Map<string, number> = new Map();
@@ -46,8 +46,8 @@ export async function fetchUrl(url: string): Promise<FetchResult> {
         'User-Agent': USER_AGENT,
         'Accept': 'text/html,application/xhtml+xml,application/xml,application/rss+xml,application/atom+xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'hu-HU,hu;q=0.9,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache',
+        'Referer': 'https://www.google.com/',
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       redirect: 'follow',

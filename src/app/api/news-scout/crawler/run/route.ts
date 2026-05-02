@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   fetchUrl,
-  isAllowedByRobots,
   parseFeed,
   isFeedContent,
   extractPage,
@@ -15,8 +14,8 @@ import {
   resolveUrl,
 } from "@/lib/crawler";
 
-const BATCH_SIZE = 10;      // hány URL-t dolgoz fel egy futásban
-const MAX_LINK_DEPTH = 2;   // max lánchossz egy seed-től
+const BATCH_SIZE = 5;       // Vercel serverless: kis batch, gyors futás
+const MAX_LINK_DEPTH = 2;
 
 interface CrawlStats {
   processed: number;
@@ -25,6 +24,7 @@ interface CrawlStats {
   links_queued: number;
   errors: number;
   skipped: number;
+  error_details: Array<{ url: string; error: string; status?: number }>;
 }
 
 // ── Seed-ek betöltése a queue-ba ───────────────────────────────────────────
@@ -63,32 +63,30 @@ async function enqueueDueSeeds(db: ReturnType<typeof getSupabaseAdmin>): Promise
   return enqueued;
 }
 
-// ── Egy RSS feed feldolgozása ──────────────────────────────────────────────
+// ── Egy RSS feed feldolgozása ─────────────────────────────────────────────
+// Visszaad: indexelt elemek száma, vagy dob hibát
 async function processRssFeed(
   db: ReturnType<typeof getSupabaseAdmin>,
   url: string,
   seedId: string | null,
-  stats: CrawlStats,
-): Promise<void> {
+): Promise<{ indexed: number; feeds_found: number }> {
   const result = await fetchUrl(url);
+
   if (!result.ok) {
-    stats.errors++;
-    return;
+    throw new Error(`HTTP ${result.status || 'network'}: ${result.error ?? 'ismeretlen hiba'} — ${url}`);
   }
 
   const feed = parseFeed(result.body);
   if (!feed || feed.items.length === 0) {
-    stats.skipped++;
-    return;
+    return { indexed: 0, feeds_found: 0 };
   }
 
   const domain = extractDomain(url);
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  let indexed = 0;
 
   for (const item of feed.items) {
     if (!item.link) continue;
-
-    // Csak 30 napon belüli tartalom
     if (item.publishedAt && item.publishedAt < thirtyDaysAgo) continue;
 
     const canonical = canonicalizeUrl(item.link);
@@ -96,9 +94,6 @@ async function processRssFeed(
 
     const text = `${item.title} ${item.snippet}`;
     if (!isRelevant(text)) continue;
-
-    const categories = detectCategories(text);
-    const relevance = scoreRelevance(text);
 
     await db.from("crawl_index").upsert(
       {
@@ -111,56 +106,48 @@ async function processRssFeed(
         crawled_at: new Date().toISOString(),
         is_rss_item: true,
         feed_url: url,
-        source_type: null,
-        categories,
-        relevance_score: relevance,
+        categories: detectCategories(text),
+        relevance_score: scoreRelevance(text),
       },
       { onConflict: "canonical_url" }
     );
-
-    stats.indexed++;
+    indexed++;
   }
 
-  stats.feeds_found++;
-
-  // Seed utolsó crawl idejének frissítése
   if (seedId) {
     await db.from("crawl_seeds").update({ last_crawled_at: new Date().toISOString() }).eq("id", seedId);
   }
+
+  return { indexed, feeds_found: 1 };
 }
 
-// ── Egy HTML oldal feldolgozása ────────────────────────────────────────────
+// ── Egy HTML oldal feldolgozása ───────────────────────────────────────────
 async function processHtmlPage(
   db: ReturnType<typeof getSupabaseAdmin>,
   url: string,
   domain: string,
   depth: number,
   seedId: string | null,
-  stats: CrawlStats,
-): Promise<void> {
-  // robots.txt ellenőrzés
-  const allowed = await isAllowedByRobots(url);
-  if (!allowed) {
-    stats.skipped++;
-    return;
-  }
-
+): Promise<{ indexed: number; feeds_found: number; links_queued: number }> {
   const result = await fetchUrl(url);
+
   if (!result.ok) {
-    stats.errors++;
-    return;
+    throw new Error(`HTTP ${result.status || 'network'}: ${result.error ?? 'ismeretlen hiba'} — ${url}`);
   }
 
-  // Ha feed-et kaptunk vissza, kezeljük feed-ként
+  // Ha feed tartalom érkezett vissza, kezeljük feed-ként
   if (isFeedContent(result.contentType, result.body)) {
-    await processRssFeed(db, url, seedId, stats);
-    return;
+    const r = await processRssFeed(db, url, seedId);
+    return { ...r, links_queued: 0 };
   }
 
   const page = extractPage(result.body, result.finalUrl || url);
   const text = `${page.title} ${page.snippet}`;
+  let indexed = 0;
+  let feeds_found = 0;
+  let links_queued = 0;
 
-  // Feed URL-ek hozzáadása a queue-hoz (magas prioritás)
+  // Feed URL-ek → queue (legmagasabb prioritás)
   for (const feedUrl of page.feedUrls) {
     const canonical = canonicalizeUrl(feedUrl);
     if (!canonical) continue;
@@ -178,16 +165,14 @@ async function processHtmlPage(
       },
       { onConflict: "url", ignoreDuplicates: true }
     );
-    stats.links_queued++;
+    feeds_found++;
+    links_queued++;
   }
 
-  // Ha releváns tartalom, indexeljük
+  // Releváns tartalom indexelése
   if (isRelevant(text)) {
     const canonical = canonicalizeUrl(url);
     if (canonical) {
-      const categories = detectCategories(text);
-      const relevance = scoreRelevance(text);
-
       await db.from("crawl_index").upsert(
         {
           url,
@@ -199,30 +184,27 @@ async function processHtmlPage(
           crawled_at: new Date().toISOString(),
           is_rss_item: false,
           feed_url: page.feedUrls[0] ?? null,
-          categories,
-          relevance_score: relevance,
+          categories: detectCategories(text),
+          relevance_score: scoreRelevance(text),
         },
         { onConflict: "canonical_url" }
       );
-      stats.indexed++;
+      indexed++;
     }
-  } else {
-    stats.skipped++;
   }
 
-  // Linkek hozzáadása a queue-hoz (ha nem értük el a max mélységet)
+  // Linkek → queue (csak ha nem értük el a max mélységet)
   if (depth < MAX_LINK_DEPTH) {
     let linkCount = 0;
     for (const link of page.links) {
-      if (linkCount >= 20) break; // max 20 link per oldal
+      if (linkCount >= 15) break;
       const resolved = resolveUrl(url, link);
       if (!shouldCrawl(resolved, domain, depth + 1, MAX_LINK_DEPTH)) continue;
-      const linkDomain = extractDomain(resolved);
 
       await db.from("crawl_queue").upsert(
         {
           url: resolved,
-          domain: linkDomain,
+          domain: extractDomain(resolved),
           seed_id: seedId,
           depth: depth + 1,
           parent_url: url,
@@ -233,26 +215,27 @@ async function processHtmlPage(
         },
         { onConflict: "url", ignoreDuplicates: true }
       );
-      stats.links_queued++;
+      links_queued++;
       linkCount++;
     }
   }
 
-  // Seed utolsó crawl idejének frissítése
   if (seedId && depth === 0) {
     await db.from("crawl_seeds").update({ last_crawled_at: new Date().toISOString() }).eq("id", seedId);
   }
+
+  return { indexed, feeds_found, links_queued };
 }
 
-// ── Fő handler ─────────────────────────────────────────────────────────────
+// ── Fő handler ────────────────────────────────────────────────────────────
 export async function POST(): Promise<NextResponse> {
   try {
     const db = getSupabaseAdmin();
 
-    // 1. Seed-ek betöltése a queue-ba (ha esedékesek)
-    const enqueued = await enqueueDueSeeds(db);
+    // 1. Seed-ek betöltése a queue-ba
+    const seeds_enqueued = await enqueueDueSeeds(db);
 
-    // 2. Következő BATCH_SIZE darab feldolgozandó URL lekérése
+    // 2. Következő BATCH_SIZE darab URL lekérése
     const { data: queueItems, error: queueErr } = await db
       .from("crawl_queue")
       .select("id, url, domain, depth, seed_id, is_rss, parent_url")
@@ -266,11 +249,14 @@ export async function POST(): Promise<NextResponse> {
     }
 
     const items = queueItems ?? [];
-    const stats: CrawlStats = { processed: 0, indexed: 0, feeds_found: 0, links_queued: 0, errors: 0, skipped: 0 };
+    const stats: CrawlStats = {
+      processed: 0, indexed: 0, feeds_found: 0,
+      links_queued: 0, errors: 0, skipped: 0,
+      error_details: [],
+    };
 
     // 3. URL-ek feldolgozása
     for (const item of items) {
-      // "processing" állapotba kerül
       await db.from("crawl_queue").update({
         status: "processing",
         started_at: new Date().toISOString(),
@@ -278,23 +264,35 @@ export async function POST(): Promise<NextResponse> {
       }).eq("id", item.id);
 
       try {
+        let result: { indexed: number; feeds_found: number; links_queued: number };
+
         if (item.is_rss) {
-          await processRssFeed(db, item.url, item.seed_id, stats);
+          const r = await processRssFeed(db, item.url, item.seed_id);
+          result = { ...r, links_queued: 0 };
         } else {
-          await processHtmlPage(db, item.url, item.domain, item.depth ?? 0, item.seed_id, stats);
+          result = await processHtmlPage(db, item.url, item.domain, item.depth ?? 0, item.seed_id);
         }
+
+        stats.indexed      += result.indexed;
+        stats.feeds_found  += result.feeds_found;
+        stats.links_queued += result.links_queued;
 
         await db.from("crawl_queue").update({
           status: "done",
           finished_at: new Date().toISOString(),
         }).eq("id", item.id);
+
       } catch (err) {
+        const errMsg = err instanceof Error ? err.message : "Ismeretlen hiba";
+
         await db.from("crawl_queue").update({
           status: "failed",
           finished_at: new Date().toISOString(),
-          error_message: err instanceof Error ? err.message : "Ismeretlen hiba",
+          error_message: errMsg,
         }).eq("id", item.id);
+
         stats.errors++;
+        stats.error_details.push({ url: item.url, error: errMsg });
       }
 
       stats.processed++;
@@ -302,7 +300,7 @@ export async function POST(): Promise<NextResponse> {
 
     return NextResponse.json({
       ok: true,
-      seeds_enqueued: enqueued,
+      seeds_enqueued,
       queue_items_processed: items.length,
       stats,
     });
