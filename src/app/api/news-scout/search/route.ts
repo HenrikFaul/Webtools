@@ -25,16 +25,33 @@ async function searchLocalIndex(
 ): Promise<SearchResult[]> {
   // websearch típusú tsquery: a Supabase textSearch ezt natívan támogatja
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const normalizedQuery = query.replace(/^"(.*)"$/, "$1").trim();
+  const q = normalizedQuery || query;
 
   const { data, error } = await db
     .from("crawl_index")
     .select("url, title, snippet, published_at, relevance_score, crawled_at")
-    .textSearch("search_tsv", query, { type: "websearch", config: "simple" })
+    .textSearch("search_tsv", q, { type: "websearch", config: "simple" })
     .gte("crawled_at", thirtyDaysAgo)
     .order("published_at", { ascending: false, nullsFirst: false })
     .limit(num);
 
-  if (error || !data?.length) return [];
+  if (error || !data?.length) {
+    const { data: ilikeData } = await db
+      .from("crawl_index")
+      .select("url, title, snippet, published_at, crawled_at")
+      .or(`title.ilike.%${q}%,snippet.ilike.%${q}%`)
+      .gte("crawled_at", thirtyDaysAgo)
+      .order("published_at", { ascending: false, nullsFirst: false })
+      .limit(num);
+
+    if (!ilikeData?.length) return [];
+    return ilikeData.map((row) => ({
+      link: row.url,
+      title: row.title ?? "(cím nélkül)",
+      snippet: row.snippet ?? "",
+    }));
+  }
 
   return data.map((row) => ({
     link: row.url,
