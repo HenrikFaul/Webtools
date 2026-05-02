@@ -16,7 +16,34 @@ export interface SearchProxyResponse {
   error?: string;
 }
 
-// ── Backend callers ──────────────────────────────────────────────────────────
+// ── Saját crawl_index keresés (PostgreSQL teljes szöveges keresés) ─────────
+
+async function searchLocalIndex(
+  db: ReturnType<typeof getSupabaseAdmin>,
+  query: string,
+  num: number,
+): Promise<SearchResult[]> {
+  // websearch típusú tsquery: a Supabase textSearch ezt natívan támogatja
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await db
+    .from("crawl_index")
+    .select("url, title, snippet, published_at, relevance_score, crawled_at")
+    .textSearch("search_tsv", query, { type: "websearch", config: "simple" })
+    .gte("crawled_at", thirtyDaysAgo)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(num);
+
+  if (error || !data?.length) return [];
+
+  return data.map((row) => ({
+    link: row.url,
+    title: row.title ?? "(cím nélkül)",
+    snippet: row.snippet ?? "",
+  }));
+}
+
+// ── Külső keresőmotor fallback-ek ─────────────────────────────────────────
 
 async function callSerpApi(apiKey: string, query: string, num: number): Promise<SearchResult[]> {
   const url = new URL("https://serpapi.com/search");
@@ -76,49 +103,59 @@ async function callSearchApiBing(apiKey: string, query: string, num: number): Pr
   }));
 }
 
-// ── Priority-ordered search with graceful fallback ───────────────────────────
+// ── Keresési stratégia: saját index → külső API fallback ──────────────────
 
 async function runSearch(
+  db: ReturnType<typeof getSupabaseAdmin>,
   keys: Record<string, string>,
   query: string,
   num: number,
 ): Promise<{ results: SearchResult[]; engine_used: string }> {
 
-  // 1. SerpAPI (Google) — highest quality
+  // 1. Saját crawl_index — ELSŐBBSÉG (google/serpapi-től FÜGGETLEN)
+  try {
+    const results = await searchLocalIndex(db, query, num);
+    if (results.length > 0) {
+      return { results, engine_used: "local_crawler_index" };
+    }
+  } catch {
+    // ha az index üres vagy hiba van, fallback-re lépünk
+  }
+
+  // 2. SerpAPI — fallback ha a saját index nem adott eredményt
   if (keys["serpapi_key"]) {
     try {
       const results = await callSerpApi(keys["serpapi_key"], query, num);
-      if (results.length > 0) return { results, engine_used: "serpapi/google" };
+      if (results.length > 0) return { results, engine_used: "serpapi/google (fallback)" };
     } catch {
-      // fall through
+      // tovább
     }
   }
 
-  // 2. SearchAPI.io — Google engine
+  // 3. SearchAPI.io Google — fallback
   if (keys["searchapi_key"]) {
     try {
       const results = await callSearchApiGoogle(keys["searchapi_key"], query, num);
-      if (results.length > 0) return { results, engine_used: "searchapi/google" };
+      if (results.length > 0) return { results, engine_used: "searchapi/google (fallback)" };
     } catch {
-      // fall through
+      // tovább
     }
   }
 
-  // 3. SearchAPI.io — Bing engine (different index, useful as fallback)
+  // 4. SearchAPI.io Bing — utolsó fallback
   if (keys["searchapi_key"]) {
     try {
       const results = await callSearchApiBing(keys["searchapi_key"], query, num);
-      if (results.length > 0) return { results, engine_used: "searchapi/bing" };
+      if (results.length > 0) return { results, engine_used: "searchapi/bing (fallback)" };
     } catch {
-      // fall through
+      // tovább
     }
   }
 
-  // 4. No backend available — return empty results (route stays healthy)
   return { results: [], engine_used: "none" };
 }
 
-// ── Handler ──────────────────────────────────────────────────────────────────
+// ── Handler ───────────────────────────────────────────────────────────────
 
 export async function GET(req: Request) {
   return handleRequest(req);
@@ -162,7 +199,7 @@ async function handleRequest(req: Request): Promise<NextResponse<SearchProxyResp
       ? (cfg.api_keys as Record<string, string>)
       : {};
 
-    const { results, engine_used } = await runSearch(keys, query, num);
+    const { results, engine_used } = await runSearch(db, keys, query, num);
 
     return NextResponse.json<SearchProxyResponse>({
       query,
