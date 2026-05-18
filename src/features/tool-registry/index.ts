@@ -48,5 +48,12 @@ export const TOOL_REGISTRY: ToolRegistryItem[] = [
     description: "Magyarországi közérdekű hírforrás-csatornák folyamatos felfedezése és naplózása – settlement-szintű forrásregiszter, keresőmotor-konfiguráció, ütemezés és futásnapló.",
     href: "/tools/news-scout",
     status: "ready"
+  },
+  {
+    slug: "embed-tester",
+    title: "Embed Tester",
+    description: "Beágyazott iframe kód tesztelése és előnézete. Illeszd be az Effectime Snippet Builder által generált <iframe> kódot, és nézd meg élőben hogyan jelenik meg a kapacitástervező vagy roster nézet.",
+    href: "/tools/embed-tester",
+    status: "ready"
   }
 ];
